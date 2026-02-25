@@ -302,7 +302,7 @@ var File_registry_v1_registry_proto protoreflect.FileDescriptor
 
 const file_registry_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1aregistry/v1/registry.proto\x12\vregistry.v1\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bbuf/validate/validate.proto\"\xb4\x02\n" +
+	"\x1aregistry/v1/registry.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb4\x02\n" +
 	"\vListRequest\x12(\n" +
 	"\vobject_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\n" +
 	"objectName\x12\x16\n" +

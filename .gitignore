@@ -10,6 +10,7 @@
 *.swp
 *.swo
 *~
+.task/
 
 # OS
 .DS_Store

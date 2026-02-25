@@ -1,0 +1,10 @@
+FROM postgres:16-alpine
+
+RUN apk add --no-cache --virtual .build-deps \
+        git make gcc musl-dev postgresql-dev \
+    && cd /tmp \
+    && git clone --depth 1 https://github.com/fboulnois/pg_uuidv7.git \
+    && cd pg_uuidv7 \
+    && make USE_PGXS=1 with_llvm=no && make USE_PGXS=1 with_llvm=no install \
+    && cd / && rm -rf /tmp/pg_uuidv7 \
+    && apk del .build-deps

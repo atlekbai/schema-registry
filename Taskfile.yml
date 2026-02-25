@@ -45,13 +45,14 @@ tasks:
       - for: sources
         cmd: |
           echo "Applying {{.ITEM}}..."
-          docker compose exec -T postgres psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
       - echo "Migrations completed!"
     sources:
       - migrations/000001_metadata.up.sql
       - migrations/000002_metadata_functions.up.sql
       - migrations/000003_core.up.sql
       - migrations/000004_metadata_core.up.sql
+      - migrations/000005_seed.up.sql
 
   migrate-down:
     desc: Rollback all migrations
@@ -60,9 +61,10 @@ tasks:
       - for: sources
         cmd: |
           echo "Rolling back {{.ITEM}}..."
-          docker compose exec -T postgres psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
       - echo "Rollback completed!"
     sources:
+      - migrations/000005_seed.down.sql
       - migrations/000004_metadata_core.down.sql
       - migrations/000003_core.down.sql
       - migrations/000002_metadata_functions.down.sql
