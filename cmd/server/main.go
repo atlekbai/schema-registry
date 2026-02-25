@@ -7,13 +7,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gorilla/mux"
+	"buf.build/go/protovalidate"
+	"connectrpc.com/connect"
+	"connectrpc.com/vanguard"
 
 	"github.com/atlekbai/schema_registry/internal/config"
 	"github.com/atlekbai/schema_registry/internal/db"
-	"github.com/atlekbai/schema_registry/internal/handler"
-	"github.com/atlekbai/schema_registry/internal/middleware"
 	"github.com/atlekbai/schema_registry/internal/schema"
+	"github.com/atlekbai/schema_registry/internal/server"
+	"github.com/atlekbai/schema_registry/internal/service"
 )
 
 func main() {
@@ -37,17 +39,37 @@ func main() {
 	}
 	log.Printf("schema cache loaded: %d objects", cache.ObjectCount())
 
-	h := handler.New(pool, cache)
+	validator, err := protovalidate.New()
+	if err != nil {
+		log.Fatalf("failed to create validator: %v", err)
+	}
 
-	r := mux.NewRouter()
-	r.HandleFunc("/api/{object}/count", h.Count).Methods("GET")
-	r.HandleFunc("/api/{object}/{id}", h.GetByID).Methods("GET")
-	r.HandleFunc("/api/{object}", h.List).Methods("GET")
-	r.Use(middleware.Recovery, middleware.Logging, middleware.ContentType)
+	interceptors := []connect.Interceptor{
+		server.ValidationInterceptor(validator),
+	}
+
+	services := []server.ConnectService{
+		service.NewRegistryService(pool, cache),
+	}
+
+	vanguardServices := make([]*vanguard.Service, len(services))
+	for i, svc := range services {
+		path, handler := svc.RegisterHandler(interceptors...)
+		vanguardServices[i] = vanguard.NewService(path, handler)
+	}
+
+	// Vanguard transcodes REST (google.api.http annotations) to Connect/gRPC.
+	transcoder, err := vanguard.NewTranscoder(vanguardServices)
+	if err != nil {
+		log.Fatalf("vanguard transcoder: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", transcoder)
 
 	srv := &http.Server{
 		Addr:    cfg.Addr(),
-		Handler: r,
+		Handler: mux,
 	}
 
 	go func() {

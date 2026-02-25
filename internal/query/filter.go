@@ -36,17 +36,17 @@ type Filter struct {
 
 // ParseFilter parses a filter value like "eq.hello" into op + value.
 func ParseFilter(raw string) (FilterOp, string, error) {
-	idx := strings.IndexByte(raw, '.')
-	if idx < 0 {
+	before, after, ok := strings.Cut(raw, ".")
+	if !ok {
 		return "", "", fmt.Errorf("invalid filter format %q, expected op.value", raw)
 	}
 
-	op := FilterOp(raw[:idx])
+	op := FilterOp(before)
 	if !validOps[op] {
 		return "", "", fmt.Errorf("unknown filter operator %q", op)
 	}
 
-	value := raw[idx+1:]
+	value := after
 	if op == OpIs && value != "null" && value != "not_null" {
 		return "", "", fmt.Errorf("is operator only accepts null or not_null, got %q", value)
 	}

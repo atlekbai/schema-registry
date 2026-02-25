@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package registry.v1;
+
+import "google/api/annotations.proto";
+import "registry/v1/registry.proto";
+
+// RegistryService provides a generic CRUD API for schema-registered objects.
+service RegistryService {
+  // List returns a paginated list of records for the given object.
+  rpc List(ListRequest) returns (ListResponse) {
+    option (google.api.http) = {get: "/api/{object_name}"};
+  }
+
+  // Get returns a single record by ID.
+  rpc Get(GetRequest) returns (GetResponse) {
+    option (google.api.http) = {get: "/api/{object_name}/{id}"};
+  }
+}

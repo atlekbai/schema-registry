@@ -4,26 +4,26 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
 
+// ParamsInput is a transport-agnostic representation of query parameters.
+type ParamsInput struct {
+	Select  string            // comma-separated field names
+	Expand  string            // comma-separated expand paths
+	Order   string            // "FieldName" or "FieldName.desc"
+	Limit   int32             // 0 means use default
+	Cursor  string            // opaque cursor token
+	Filters map[string]string // field API name -> "op.value"
+}
+
 const (
 	DefaultLimit = 50
 	MaxLimit     = 200
 )
-
-var reservedParams = map[string]bool{
-	"select": true,
-	"expand": true,
-	"order":  true,
-	"limit":  true,
-	"cursor": true,
-}
 
 type OrderClause struct {
 	FieldAPIName string
@@ -80,17 +80,15 @@ type QueryParams struct {
 	Cursor      *Cursor
 }
 
-func ParseQueryParams(r *http.Request, obj *schema.ObjectDef) (*QueryParams, error) {
+// ParseParams builds QueryParams from a transport-agnostic ParamsInput.
+func ParseParams(obj *schema.ObjectDef, input ParamsInput) (*QueryParams, error) {
 	p := &QueryParams{
 		Limit: DefaultLimit,
 	}
 
-	q := r.URL.Query()
-
-	// ?select=Field1,Field2
-	if sel := q.Get("select"); sel != "" {
-		fields := strings.Split(sel, ",")
-		for _, f := range fields {
+	// select
+	if input.Select != "" {
+		for f := range strings.SplitSeq(input.Select, ",") {
 			f = strings.TrimSpace(f)
 			if f == "" {
 				continue
@@ -102,18 +100,16 @@ func ParseQueryParams(r *http.Request, obj *schema.ObjectDef) (*QueryParams, err
 		}
 	}
 
-	// ?expand=Field1,Field2.NestedField
-	if exp := q.Get("expand"); exp != "" {
-		fields := strings.Split(exp, ",")
-		for _, f := range fields {
+	// expand
+	if input.Expand != "" {
+		for f := range strings.SplitSeq(input.Expand, ",") {
 			f = strings.TrimSpace(f)
 			if f == "" {
 				continue
 			}
-			// Validate top-level field
 			topLevel := f
-			if idx := strings.IndexByte(f, '.'); idx >= 0 {
-				topLevel = f[:idx]
+			if before, _, ok := strings.Cut(f, "."); ok {
+				topLevel = before
 			}
 			fd, ok := obj.FieldsByAPIName[topLevel]
 			if !ok {
@@ -126,9 +122,9 @@ func ParseQueryParams(r *http.Request, obj *schema.ObjectDef) (*QueryParams, err
 		}
 	}
 
-	// ?order=Field.desc
-	if ord := q.Get("order"); ord != "" {
-		parts := strings.SplitN(ord, ".", 2)
+	// order
+	if input.Order != "" {
+		parts := strings.SplitN(input.Order, ".", 2)
 		fieldName := parts[0]
 		if _, ok := obj.FieldsByAPIName[fieldName]; !ok {
 			return nil, fmt.Errorf("unknown field %q in order", fieldName)
@@ -140,43 +136,33 @@ func ParseQueryParams(r *http.Request, obj *schema.ObjectDef) (*QueryParams, err
 		p.Order = clause
 	}
 
-	// ?limit=20
-	if lim := q.Get("limit"); lim != "" {
-		n, err := strconv.Atoi(lim)
-		if err != nil || n < 1 {
-			return nil, fmt.Errorf("invalid limit %q", lim)
-		}
+	// limit
+	if input.Limit > 0 {
+		n := int(input.Limit)
 		if n > MaxLimit {
 			n = MaxLimit
 		}
 		p.Limit = n
 	}
 
-	// ?cursor=token (base64 keyset cursor or plain UUID)
-	if cur := q.Get("cursor"); cur != "" {
-		c, err := DecodeCursor(cur)
+	// cursor
+	if input.Cursor != "" {
+		c, err := DecodeCursor(input.Cursor)
 		if err != nil {
-			return nil, fmt.Errorf("invalid cursor %q: %w", cur, err)
+			return nil, fmt.Errorf("invalid cursor %q: %w", input.Cursor, err)
 		}
 		p.Cursor = c
 	}
 
-	// Remaining params are filters: ?FieldName=op.value
-	for key, values := range q {
-		if reservedParams[key] {
-			continue
-		}
-		if len(values) == 0 {
-			continue
-		}
-
+	// filters
+	for key, value := range input.Filters {
 		fd, ok := obj.FieldsByAPIName[key]
 		if !ok {
 			return nil, fmt.Errorf("unknown filter field %q", key)
 		}
 		_ = fd
 
-		op, val, err := ParseFilter(values[0])
+		op, val, err := ParseFilter(value)
 		if err != nil {
 			return nil, fmt.Errorf("filter %q: %w", key, err)
 		}
@@ -198,9 +184,9 @@ func ResolveExpands(params *QueryParams, obj *schema.ObjectDef, cache *schema.Ca
 	var level2 []nested
 
 	for _, f := range params.Expand {
-		if idx := strings.IndexByte(f, '.'); idx >= 0 {
-			level1 = append(level1, f[:idx])
-			level2 = append(level2, nested{f[:idx], f[idx+1:]})
+		if before, after, ok := strings.Cut(f, "."); ok {
+			level1 = append(level1, before)
+			level2 = append(level2, nested{before, after})
 		} else {
 			level1 = append(level1, f)
 		}

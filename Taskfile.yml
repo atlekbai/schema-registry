@@ -68,6 +68,21 @@ tasks:
       - migrations/000002_metadata_functions.down.sql
       - migrations/000001_metadata.down.sql
 
+  proto:
+    desc: Generate protobuf and Connect code
+    cmds:
+      - buf generate
+    sources:
+      - proto/**/*.proto
+      - buf.gen.yaml
+    generates:
+      - gen/**/*.go
+
+  lint-proto:
+    desc: Lint protobuf files
+    cmds:
+      - buf lint
+
   clean:
     desc: Remove containers and volumes
     cmds:
