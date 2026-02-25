@@ -1,0 +1,82 @@
+version: '3'
+
+vars:
+  POSTGRES_USER: postgres
+  POSTGRES_DB: main
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  up:
+    desc: Start the database
+    cmds:
+      - docker compose up -d
+      - echo "Database is starting... waiting for it to be ready"
+      - sleep 3
+      - docker compose exec postgres pg_isready -U {{.POSTGRES_USER}} || true
+
+  down:
+    desc: Stop the database
+    cmds:
+      - docker compose down
+
+  restart:
+    desc: Restart the database
+    cmds:
+      - docker compose restart
+
+  logs:
+    desc: Show database logs
+    cmds:
+      - docker compose logs -f postgres
+
+  psql:
+    desc: Connect to the database with psql
+    cmds:
+      - docker compose exec postgres psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}}
+
+  migrate-up:
+    desc: Run all migrations
+    cmds:
+      - echo "Running migrations..."
+      - for: sources
+        cmd: |
+          echo "Applying {{.ITEM}}..."
+          docker compose exec -T postgres psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
+      - echo "Migrations completed!"
+    sources:
+      - migrations/000001_metadata.up.sql
+      - migrations/000002_metadata_functions.up.sql
+      - migrations/000003_core.up.sql
+      - migrations/000004_metadata_core.up.sql
+
+  migrate-down:
+    desc: Rollback all migrations
+    cmds:
+      - echo "Rolling back migrations..."
+      - for: sources
+        cmd: |
+          echo "Rolling back {{.ITEM}}..."
+          docker compose exec -T postgres psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
+      - echo "Rollback completed!"
+    sources:
+      - migrations/000004_metadata_core.down.sql
+      - migrations/000003_core.down.sql
+      - migrations/000002_metadata_functions.down.sql
+      - migrations/000001_metadata.down.sql
+
+  clean:
+    desc: Remove containers and volumes
+    cmds:
+      - docker compose down -v
+      - echo "Containers and volumes removed!"
+
+  reset:
+    desc: Clean and restart with migrations
+    cmds:
+      - task: clean
+      - task: up
+      - task: migrate-up

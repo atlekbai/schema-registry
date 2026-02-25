@@ -1,0 +1,7 @@
+.git
+.gitignore
+*.md
+compose.yaml
+Taskfile.yml
+.env
+.env.example
