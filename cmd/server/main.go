@@ -40,8 +40,9 @@ func main() {
 	h := handler.New(pool, cache)
 
 	r := mux.NewRouter()
-	r.HandleFunc("/api/{object}", h.List).Methods("GET")
+	r.HandleFunc("/api/{object}/count", h.Count).Methods("GET")
 	r.HandleFunc("/api/{object}/{id}", h.GetByID).Methods("GET")
+	r.HandleFunc("/api/{object}", h.List).Methods("GET")
 	r.Use(middleware.Recovery, middleware.Logging, middleware.ContentType)
 
 	srv := &http.Server{

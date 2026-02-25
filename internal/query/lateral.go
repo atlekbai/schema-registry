@@ -90,24 +90,28 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string) (sql string, args []a
 			strings.Join(nestedJoins, " "),
 			qi(inner), outerRef, qi(alias))
 	} else {
-		// Custom target: select id, timestamps, data + any nested expansions
+		// Custom target: extract individual fields from data using -> (preserves JSONB types)
 		cols = append(cols,
 			fmt.Sprintf(`%s."id"`, qi(inner)),
 			fmt.Sprintf(`%s."created_at"`, qi(inner)),
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-			fmt.Sprintf(`%s."data"`, qi(inner)),
 		)
-		for _, child := range ep.Children {
-			childName := name + "__" + child.FieldName
-			childAlias := expandAlias(childName)
-			cols = append(cols, fmt.Sprintf(
-				`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
-				qi(childAlias), qi(childAlias), qi(child.FieldName)))
+		for _, f := range target.Fields {
+			if child, ok := childSet[f.APIName]; ok {
+				childName := name + "__" + child.FieldName
+				childAlias := expandAlias(childName)
+				cols = append(cols, fmt.Sprintf(
+					`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
+					qi(childAlias), qi(childAlias), qi(f.APIName)))
 
-			childRef := fmt.Sprintf(`(%s."data"->>%s)::uuid`, qi(inner), quoteLit(child.FieldName))
-			nj, na := buildNestedLateral(&child, childRef, name+"__")
-			nestedJoins = append(nestedJoins, nj)
-			args = append(args, na...)
+				childRef := fmt.Sprintf(`(%s."data"->>%s)::uuid`, qi(inner), quoteLit(child.FieldName))
+				nj, na := buildNestedLateral(child, childRef, name+"__")
+				nestedJoins = append(nestedJoins, nj)
+				args = append(args, na...)
+			} else {
+				cols = append(cols, fmt.Sprintf(`%s."data"->%s AS %s`,
+					qi(inner), quoteLit(f.APIName), qi(f.APIName)))
+			}
 		}
 		sql = fmt.Sprintf(
 			`LATERAL (SELECT %s FROM "metadata"."records" %s %s WHERE %s."object_id" = ? AND %s."id" = %s) %s ON TRUE`,
@@ -147,12 +151,16 @@ func buildNestedLateral(child *ExpandPlan, outerRef, prefix string) (sql string,
 			target.TableName(), qi(inner),
 			qi(inner), outerRef, qi(alias))
 	} else {
+		// Custom target: extract individual fields from data
 		cols = append(cols,
 			fmt.Sprintf(`%s."id"`, qi(inner)),
 			fmt.Sprintf(`%s."created_at"`, qi(inner)),
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-			fmt.Sprintf(`%s."data"`, qi(inner)),
 		)
+		for _, f := range target.Fields {
+			cols = append(cols, fmt.Sprintf(`%s."data"->%s AS %s`,
+				qi(inner), quoteLit(f.APIName), qi(f.APIName)))
+		}
 		sql = fmt.Sprintf(
 			`LEFT JOIN LATERAL (SELECT %s FROM "metadata"."records" %s WHERE %s."object_id" = ? AND %s."id" = %s) %s ON TRUE`,
 			strings.Join(cols, ", "),

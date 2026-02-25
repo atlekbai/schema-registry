@@ -5,12 +5,6 @@ import (
 	"net/http"
 )
 
-type ListResponse struct {
-	TotalCount int64            `json:"total_count"`
-	NextCursor *string          `json:"next_cursor,omitempty"`
-	Results    []map[string]any `json:"results"`
-}
-
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Code    string `json:"code"`

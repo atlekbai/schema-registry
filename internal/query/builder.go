@@ -10,6 +10,8 @@ type Builder interface {
 	BuildList(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
 	BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params *QueryParams) (string, []any, error)
 	BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
+	// BuildEstimate returns SELECT 1 FROM ... WHERE ... for use with EXPLAIN (FORMAT JSON).
+	BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
 }
 
 // NewBuilder returns the appropriate query builder for the object type.

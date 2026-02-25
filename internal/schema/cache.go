@@ -25,11 +25,13 @@ ORDER BY o.api_name, f.created_at
 type Cache struct {
 	mu      sync.RWMutex
 	objects map[string]*ObjectDef
+	byID    map[uuid.UUID]*ObjectDef
 }
 
 func NewCache() *Cache {
 	return &Cache{
 		objects: make(map[string]*ObjectDef),
+		byID:    make(map[uuid.UUID]*ObjectDef),
 	}
 }
 
@@ -114,8 +116,14 @@ func (c *Cache) Load(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("schema cache rows: %w", err)
 	}
 
+	byID := make(map[uuid.UUID]*ObjectDef, len(objects))
+	for _, obj := range objects {
+		byID[obj.ID] = obj
+	}
+
 	c.mu.Lock()
 	c.objects = objects
+	c.byID = byID
 	c.mu.Unlock()
 
 	return nil
@@ -131,12 +139,7 @@ func (c *Cache) Get(apiName string) *ObjectDef {
 func (c *Cache) GetByID(id uuid.UUID) *ObjectDef {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	for _, obj := range c.objects {
-		if obj.ID == id {
-			return obj
-		}
-	}
-	return nil
+	return c.byID[id]
 }
 
 // ObjectCount returns the number of loaded objects.

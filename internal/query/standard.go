@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/atlekbai/schema_registry/internal/schema"
@@ -14,7 +15,18 @@ type StandardBuilder struct{}
 const stdAlias = "_e"
 
 func (b *StandardBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
-	columns := b.selectColumns(obj, params)
+	expandSet := makeExpandSet(params.ExpandPlans)
+	jsonExpr := b.jsonObject(obj, params, expandSet)
+
+	columns := []string{jsonExpr + " AS _row"}
+	columns = append(columns, fmt.Sprintf(`%s."id"::text AS _cursor_id`, qi(stdAlias)))
+	if params.Order != nil {
+		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
+		if fd != nil && fd.StorageColumn != nil {
+			columns = append(columns, fmt.Sprintf(`%s.%s::text AS _cursor_val`,
+				qi(stdAlias), qi(*fd.StorageColumn)))
+		}
+	}
 
 	qb := sq.Select(columns...).
 		From(obj.TableName() + " " + qi(stdAlias)).
@@ -24,13 +36,16 @@ func (b *StandardBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) 
 	qb = b.applyFilters(qb, obj, params)
 	qb = b.applyOrder(qb, obj, params)
 	qb = b.applyCursor(qb, obj, params)
-	qb = qb.Limit(uint64(params.Limit + 1))
+	qb = qb.Suffix("LIMIT ?", params.Limit+1)
 
 	return qb.ToSql()
 }
 
 func (b *StandardBuilder) BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params *QueryParams) (string, []any, error) {
-	columns := b.selectColumns(obj, params)
+	expandSet := makeExpandSet(params.ExpandPlans)
+	jsonExpr := b.jsonObject(obj, params, expandSet)
+
+	columns := []string{jsonExpr + " AS _row"}
 
 	qb := sq.Select(columns...).
 		From(obj.TableName() + " " + qi(stdAlias)).
@@ -43,29 +58,48 @@ func (b *StandardBuilder) BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, para
 	return qb.ToSql()
 }
 
-func (b *StandardBuilder) selectColumns(obj *schema.ObjectDef, params *QueryParams) []string {
-	expandSet := makeExpandSet(params.ExpandPlans)
+func (b *StandardBuilder) BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+	qb := sq.Select("count(*)").
+		From(obj.TableName() + " " + qi(stdAlias)).
+		PlaceholderFormat(sq.Dollar)
 
-	columns := []string{
-		fmt.Sprintf(`%s."id"`, qi(stdAlias)),
-		fmt.Sprintf(`%s."created_at"`, qi(stdAlias)),
-		fmt.Sprintf(`%s."updated_at"`, qi(stdAlias)),
-	}
+	qb = b.applyFilters(qb, obj, params)
+
+	return qb.ToSql()
+}
+
+func (b *StandardBuilder) BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+	qb := sq.Select("1").
+		From(obj.TableName() + " " + qi(stdAlias)).
+		PlaceholderFormat(sq.Dollar)
+
+	qb = b.applyFilters(qb, obj, params)
+
+	return qb.ToSql()
+}
+
+// jsonObject builds a json_build_object(...) expression for the SELECT clause.
+func (b *StandardBuilder) jsonObject(obj *schema.ObjectDef, params *QueryParams, expandSet map[string]*ExpandPlan) string {
+	var pairs []string
+	pairs = append(pairs,
+		fmt.Sprintf(`'id', %s."id"`, qi(stdAlias)),
+		fmt.Sprintf(`'created_at', %s."created_at"`, qi(stdAlias)),
+		fmt.Sprintf(`'updated_at', %s."updated_at"`, qi(stdAlias)),
+	)
 
 	fields := b.resolveFields(obj, params, expandSet)
 	for _, f := range fields {
 		if ep, ok := expandSet[f.APIName]; ok {
 			alias := expandAlias(ep.FieldName)
-			columns = append(columns, fmt.Sprintf(
-				`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
-				qi(alias), qi(alias), qi(f.APIName)))
+			pairs = append(pairs, fmt.Sprintf(`%s, CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END`,
+				quoteLit(f.APIName), qi(alias), qi(alias)))
 		} else if f.StorageColumn != nil {
-			columns = append(columns, fmt.Sprintf(`%s.%s AS %s`,
-				qi(stdAlias), qi(*f.StorageColumn), qi(f.APIName)))
+			pairs = append(pairs, fmt.Sprintf(`%s, %s.%s`,
+				quoteLit(f.APIName), qi(stdAlias), qi(*f.StorageColumn)))
 		}
 	}
 
-	return columns
+	return fmt.Sprintf("json_build_object(%s)", strings.Join(pairs, ", "))
 }
 
 // resolveFields returns which fields to include. Expanded fields are always included.
@@ -132,16 +166,6 @@ func (b *StandardBuilder) applyOrder(qb sq.SelectBuilder, obj *schema.ObjectDef,
 		qb = qb.OrderBy(fmt.Sprintf(`%s."id" ASC`, qi(stdAlias)))
 	}
 	return qb
-}
-
-func (b *StandardBuilder) BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
-	qb := sq.Select("count(*)").
-		From(obj.TableName() + " " + qi(stdAlias)).
-		PlaceholderFormat(sq.Dollar)
-
-	qb = b.applyFilters(qb, obj, params)
-
-	return qb.ToSql()
 }
 
 func (b *StandardBuilder) applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {

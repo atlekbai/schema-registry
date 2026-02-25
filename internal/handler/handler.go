@@ -1,21 +1,25 @@
 package handler
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/atlekbai/schema_registry/internal/query"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
+
+// exactCountThreshold is the planner estimate below which we run an exact count.
+// Above this, the EXPLAIN estimate is returned directly.
+const exactCountThreshold = 50_000
 
 type Handler struct {
 	pool  *pgxpool.Pool
@@ -24,6 +28,13 @@ type Handler struct {
 
 func New(pool *pgxpool.Pool, cache *schema.Cache) *Handler {
 	return &Handler{pool: pool, cache: cache}
+}
+
+// jsonRow holds a single result row as raw JSON plus cursor extraction columns.
+type jsonRow struct {
+	Data      json.RawMessage
+	CursorID  string
+	CursorVal string
 }
 
 // List handles GET /api/{object}
@@ -43,24 +54,20 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve expand plans for lateral joins
 	query.ResolveExpands(params, obj, h.cache)
 
 	builder := query.NewBuilder(obj)
 
-	// Run count and list queries concurrently.
 	g, ctx := errgroup.WithContext(r.Context())
 
 	var totalCount int64
 	g.Go(func() error {
-		countSQL, countArgs, err := builder.BuildCount(obj, params)
-		if err != nil {
-			return err
-		}
-		return h.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&totalCount)
+		var err error
+		totalCount, err = h.resolveCount(ctx, builder, obj, params)
+		return err
 	})
 
-	var results []map[string]any
+	var results []jsonRow
 	g.Go(func() error {
 		sqlStr, args, err := builder.BuildList(obj, params)
 		if err != nil {
@@ -71,7 +78,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		defer rows.Close()
-		results, err = scanRows(rows, obj)
+		results, err = scanJSONRows(rows, params.Order != nil)
 		return err
 	})
 
@@ -85,26 +92,45 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if len(results) > params.Limit {
 		results = results[:params.Limit]
 		last := results[params.Limit-1]
-		if id, ok := last["id"].(string); ok {
-			var orderVal string
-			if params.Order != nil {
-				if v := last[params.Order.FieldAPIName]; v != nil {
-					orderVal = fmt.Sprint(v)
-				}
-			}
-			encoded := query.EncodeCursor(id, orderVal)
-			nextCursor = &encoded
-		}
+		encoded := query.EncodeCursor(last.CursorID, last.CursorVal)
+		nextCursor = &encoded
 	}
 
-	// Flatten "data" keys for custom-target expanded fields
-	flattenCustomExpands(results, params.ExpandPlans)
+	writeJSONList(w, totalCount, nextCursor, results)
+}
 
-	writeJSON(w, http.StatusOK, ListResponse{
-		TotalCount: totalCount,
-		NextCursor: nextCursor,
-		Results:    results,
-	})
+// Count handles GET /api/{object}/count — always returns exact count.
+func (h *Handler) Count(w http.ResponseWriter, r *http.Request) {
+	objectName := mux.Vars(r)["object"]
+	obj := h.cache.Get(objectName)
+	if obj == nil {
+		writeError(w, http.StatusNotFound, "OBJECT_NOT_FOUND",
+			"Object not found",
+			"No object registered with api_name '"+objectName+"'")
+		return
+	}
+
+	params, err := query.ParseQueryParams(r, obj)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_PARAM", err.Error(), "")
+		return
+	}
+
+	builder := query.NewBuilder(obj)
+	countSQL, countArgs, err := builder.BuildCount(obj, params)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to build query", err.Error())
+		return
+	}
+
+	var count int64
+	err = h.pool.QueryRow(r.Context(), countSQL, countArgs...).Scan(&count)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Query failed", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]int64{"count": count})
 }
 
 // GetByID handles GET /api/{object}/{id}
@@ -140,119 +166,110 @@ func (h *Handler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := h.pool.Query(r.Context(), sqlStr, args...)
+	var data json.RawMessage
+	err = h.pool.QueryRow(r.Context(), sqlStr, args...).Scan(&data)
+	if err == pgx.ErrNoRows {
+		writeError(w, http.StatusNotFound, "RECORD_NOT_FOUND", "Record not found", "")
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Query failed", err.Error())
 		return
 	}
-	defer rows.Close()
 
-	results, err := scanRows(rows, obj)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to scan results", err.Error())
-		return
-	}
-
-	if len(results) == 0 {
-		writeError(w, http.StatusNotFound, "RECORD_NOT_FOUND", "Record not found", "")
-		return
-	}
-
-	flattenCustomExpands(results, params.ExpandPlans)
-
-	writeJSON(w, http.StatusOK, results[0])
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+	w.Write([]byte{'\n'})
 }
 
-// scanRows dynamically scans query results into maps.
-func scanRows(rows pgx.Rows, obj *schema.ObjectDef) ([]map[string]any, error) {
-	descs := rows.FieldDescriptions()
-	var results []map[string]any
+// resolveCount uses the EXPLAIN trick for cheap estimation on large tables,
+// falling back to exact count only when the planner estimate is small.
+func (h *Handler) resolveCount(ctx context.Context, builder query.Builder, obj *schema.ObjectDef, params *query.QueryParams) (int64, error) {
+	// Step 1: Get planner estimate (always fast, ~1ms — no data touched)
+	estSQL, estArgs, err := builder.BuildEstimate(obj, params)
+	if err != nil {
+		return 0, err
+	}
 
+	var planJSON string
+	err = h.pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+estSQL, estArgs...).Scan(&planJSON)
+	if err != nil {
+		return 0, fmt.Errorf("explain estimate: %w", err)
+	}
+
+	estimated := parsePlanRows(planJSON)
+
+	// Step 2: If the estimate is small, run exact count
+	if estimated <= exactCountThreshold {
+		countSQL, countArgs, err := builder.BuildCount(obj, params)
+		if err != nil {
+			return estimated, nil
+		}
+
+		var count int64
+		if err := h.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&count); err != nil {
+			return estimated, nil
+		}
+
+		return count, nil
+	}
+
+	return estimated, nil
+}
+
+// parsePlanRows extracts "Plan Rows" from EXPLAIN (FORMAT JSON) output.
+func parsePlanRows(planJSON string) int64 {
+	var plan []struct {
+		Plan struct {
+			PlanRows float64 `json:"Plan Rows"`
+		} `json:"Plan"`
+	}
+	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil || len(plan) == 0 {
+		return 0
+	}
+	return int64(plan[0].Plan.PlanRows)
+}
+
+// scanJSONRows scans rows where the first column is a JSON object (_row),
+// the second is the cursor ID, and optionally the third is the cursor order value.
+func scanJSONRows(rows pgx.Rows, hasOrderVal bool) ([]jsonRow, error) {
+	var results []jsonRow
 	for rows.Next() {
-		vals, err := rows.Values()
+		var r jsonRow
+		var err error
+		if hasOrderVal {
+			err = rows.Scan(&r.Data, &r.CursorID, &r.CursorVal)
+		} else {
+			err = rows.Scan(&r.Data, &r.CursorID)
+		}
 		if err != nil {
 			return nil, err
 		}
-
-		row := make(map[string]any, len(vals))
-
-		if !obj.IsStandard {
-			// Custom object: id, timestamps, data, then expanded columns
-			for i, desc := range descs {
-				name := string(desc.Name)
-				if name == "data" {
-					if data, ok := vals[i].(map[string]any); ok {
-						for k, v := range data {
-							row[k] = v
-						}
-					}
-				} else {
-					row[name] = formatValue(vals[i])
-				}
-			}
-		} else {
-			// Standard object: columns are aliased to api_names
-			for i, desc := range descs {
-				row[string(desc.Name)] = formatValue(vals[i])
-			}
-		}
-
-		results = append(results, row)
+		results = append(results, r)
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
+	return results, rows.Err()
 }
 
-// formatValue converts pgx types to JSON-friendly values.
-func formatValue(v any) any {
-	switch val := v.(type) {
-	case time.Time:
-		return val.UTC().Format(time.RFC3339)
-	case pgtype.UUID:
-		if val.Valid {
-			id, _ := uuid.FromBytes(val.Bytes[:])
-			return id.String()
-		}
-		return nil
-	case [16]byte:
-		id, _ := uuid.FromBytes(val[:])
-		return id.String()
-	case []byte:
-		var m any
-		if json.Unmarshal(val, &m) == nil {
-			return m
-		}
-		return string(val)
-	default:
-		return v
+// writeJSONList writes the list response, streaming raw JSON rows without re-marshaling.
+func writeJSONList(w http.ResponseWriter, totalCount int64, nextCursor *string, rows []jsonRow) {
+	buf := &bytes.Buffer{}
+	buf.WriteString(fmt.Sprintf(`{"total_count":%d`, totalCount))
+	if nextCursor != nil {
+		buf.WriteString(`,"next_cursor":`)
+		enc, _ := json.Marshal(*nextCursor)
+		buf.Write(enc)
 	}
-}
+	buf.WriteString(`,"results":[`)
+	for i, r := range rows {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.Write(r.Data)
+	}
+	buf.WriteString("]}\n")
 
-// flattenCustomExpands merges the "data" key from custom-target expanded objects
-// into the parent map, so the API returns flat objects instead of nested {data: ...}.
-func flattenCustomExpands(results []map[string]any, expands []query.ExpandPlan) {
-	for _, ep := range expands {
-		for _, row := range results {
-			obj, ok := row[ep.FieldName].(map[string]any)
-			if !ok || obj == nil {
-				continue
-			}
-			if !ep.Target.IsStandard {
-				if data, ok := obj["data"].(map[string]any); ok {
-					delete(obj, "data")
-					for k, v := range data {
-						obj[k] = v
-					}
-				}
-			}
-			// Handle nested level-2 expansions
-			if len(ep.Children) > 0 {
-				flattenCustomExpands([]map[string]any{obj}, ep.Children)
-			}
-		}
-	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(buf.Bytes())
 }
