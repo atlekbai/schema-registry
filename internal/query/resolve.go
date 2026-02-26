@@ -7,8 +7,8 @@ import (
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
-// selectExpr returns the SQL for a field in SELECT context (preserves JSONB types via ->).
-func selectExpr(alias string, fd *schema.FieldDef) string {
+// selectFieldExpr returns the SQL for a field in SELECT context (preserves JSONB types via ->).
+func selectFieldExpr(alias string, fd *schema.FieldDef) string {
 	if fd.StorageColumn != nil {
 		return fmt.Sprintf(`%s.%s`, qi(alias), qi(*fd.StorageColumn))
 	}
@@ -27,6 +27,21 @@ func filterExpr(alias string, fd *schema.FieldDef) string {
 		return fmt.Sprintf(`(%s."data"->>%s)::timestamptz`, qi(alias), quoteLit(fd.APIName))
 	}
 	return fmt.Sprintf(`%s."data"->>%s`, qi(alias), quoteLit(fd.APIName))
+}
+
+// jsonKey returns the JSON output key for a field.
+// Lookup fields use the storage column name (e.g. "organization_id"), others use the API name.
+func jsonKey(f *schema.FieldDef) string {
+	if f.Type == schema.FieldLookup && f.StorageColumn != nil {
+		return *f.StorageColumn
+	}
+	return f.APIName
+}
+
+// expandExpr returns a CASE WHEN expression for a laterally-joined expanded field.
+func expandExpr(alias string) string {
+	return fmt.Sprintf(`CASE WHEN %s."id" IS NOT NULL THEN to_jsonb(%s.*) ELSE NULL END`,
+		qi(alias), qi(alias))
 }
 
 // fkRef returns the SQL for a FK reference in lateral joins.

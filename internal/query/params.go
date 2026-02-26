@@ -178,12 +178,12 @@ func ParseParams(obj *schema.ObjectDef, input ParamsInput) (*QueryParams, error)
 }
 
 // ResolveExpands resolves expand strings into ExpandPlans using the schema cache.
-func ResolveExpands(params *QueryParams, obj *schema.ObjectDef, cache *schema.Cache) {
+func ResolveExpands(expands []string, obj *schema.ObjectDef, cache *schema.Cache) []ExpandPlan {
 	type nested struct{ parent, child string }
 	var level1 []string
 	var level2 []nested
 
-	for _, f := range params.Expand {
+	for _, f := range expands {
 		if before, after, ok := strings.Cut(f, "."); ok {
 			level1 = append(level1, before)
 			level2 = append(level2, nested{before, after})
@@ -232,7 +232,9 @@ func ResolveExpands(params *QueryParams, obj *schema.ObjectDef, cache *schema.Ca
 		})
 	}
 
+	var plans []ExpandPlan
 	for _, fn := range ordered {
-		params.ExpandPlans = append(params.ExpandPlans, *planMap[fn])
+		plans = append(plans, *planMap[fn])
 	}
+	return plans
 }

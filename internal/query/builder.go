@@ -13,11 +13,11 @@ const qAlias = "_e"
 
 // Builder generates SQL queries for a given object definition.
 type Builder interface {
-	BuildList(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
-	BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params *QueryParams) (string, []any, error)
-	BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
+	BuildList(params *QueryParams) (string, []any, error)
+	BuildGetByID(id uuid.UUID, params *QueryParams) (string, []any, error)
+	BuildCount(params *QueryParams) (string, []any, error)
 	// BuildEstimate returns SELECT 1 FROM ... WHERE ... for use with EXPLAIN (FORMAT JSON).
-	BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
+	BuildEstimate(params *QueryParams) (string, []any, error)
 }
 
 // isSystemField returns true for system fields (id, created_at, updated_at)
@@ -27,51 +27,57 @@ func isSystemField(apiName string) bool {
 }
 
 // QueryBuilder builds SQL for both standard and custom objects.
-type QueryBuilder struct{}
-
-// NewBuilder returns a query builder for the given object.
-func NewBuilder(_ *schema.ObjectDef) Builder {
-	return &QueryBuilder{}
+type QueryBuilder struct {
+	obj *schema.ObjectDef
 }
 
-func (b *QueryBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+// NewBuilder returns a query builder for the given object.
+func NewBuilder(obj *schema.ObjectDef) Builder {
+	return &QueryBuilder{
+		obj: obj,
+	}
+}
+
+func (b *QueryBuilder) BuildList(params *QueryParams) (string, []any, error) {
 	expandSet := makeExpandSet(params.ExpandPlans)
-	jsonExpr := buildJsonObject(obj, params, expandSet)
+	jsonExpr := buildJsonObject(b.obj, params, expandSet)
 
 	columns := []string{jsonExpr + " AS _row"}
 	columns = append(columns, fmt.Sprintf(`%s."id"::text AS _cursor_id`, qi(qAlias)))
 	if params.Order != nil {
-		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
+		fd := b.obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
 			col := filterExpr(qAlias, fd)
 			columns = append(columns, fmt.Sprintf(`%s::text AS _cursor_val`, col))
 		}
 	}
 
-	from, baseWhere := tableSource(obj, qAlias)
+	from, baseWhere := tableSource(b.obj, qAlias)
 	qb := sq.Select(columns...).From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
 
 	qb = addLateralJoins(qb, params)
-	for _, cond := range buildFilters(obj, params) {
+	for _, cond := range buildFilters(b.obj, params) {
 		qb = qb.Where(cond)
 	}
-	qb = applyOrder(qb, obj, params)
-	qb = applyCursor(qb, obj, params)
+	for _, clause := range buildOrderBy(b.obj, params) {
+		qb = qb.OrderBy(clause)
+	}
+	qb = applyCursor(qb, b.obj, params)
 	qb = qb.Suffix("LIMIT ?", params.Limit+1)
 
 	return qb.ToSql()
 }
 
-func (b *QueryBuilder) BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params *QueryParams) (string, []any, error) {
+func (b *QueryBuilder) BuildGetByID(id uuid.UUID, params *QueryParams) (string, []any, error) {
 	expandSet := makeExpandSet(params.ExpandPlans)
-	jsonExpr := buildJsonObject(obj, params, expandSet)
+	jsonExpr := buildJsonObject(b.obj, params, expandSet)
 
 	columns := []string{jsonExpr + " AS _row"}
 
-	from, baseWhere := tableSource(obj, qAlias)
+	from, baseWhere := tableSource(b.obj, qAlias)
 	qb := sq.Select(columns...).
 		From(from).
 		Where(sq.Eq{qi(qAlias) + `."id"`: id}).
@@ -86,25 +92,25 @@ func (b *QueryBuilder) BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params 
 	return qb.ToSql()
 }
 
-func (b *QueryBuilder) BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
-	from, baseWhere := tableSource(obj, qAlias)
+func (b *QueryBuilder) BuildCount(params *QueryParams) (string, []any, error) {
+	from, baseWhere := tableSource(b.obj, qAlias)
 	qb := sq.Select("count(*)").From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	for _, cond := range buildFilters(obj, params) {
+	for _, cond := range buildFilters(b.obj, params) {
 		qb = qb.Where(cond)
 	}
 	return qb.ToSql()
 }
 
-func (b *QueryBuilder) BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
-	from, baseWhere := tableSource(obj, qAlias)
+func (b *QueryBuilder) BuildEstimate(params *QueryParams) (string, []any, error) {
+	from, baseWhere := tableSource(b.obj, qAlias)
 	qb := sq.Select("1").From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	for _, cond := range buildFilters(obj, params) {
+	for _, cond := range buildFilters(b.obj, params) {
 		qb = qb.Where(cond)
 	}
 	return qb.ToSql()
@@ -119,22 +125,15 @@ func buildJsonObject(obj *schema.ObjectDef, params *QueryParams, expandSet map[s
 		fmt.Sprintf(`'updated_at', %s."updated_at"`, qi(qAlias)),
 	)
 
-	fields := resolveFields(obj, params, expandSet)
-	for _, f := range fields {
+	for _, f := range resolveFields(obj, params, expandSet) {
 		if isSystemField(f.APIName) {
 			continue
 		}
 		if ep, ok := expandSet[f.APIName]; ok {
 			alias := expandAlias(ep.FieldName)
-			pairs = append(pairs, fmt.Sprintf(`%s, CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END`,
-				quoteLit(f.APIName), qi(alias), qi(alias)))
-		} else if f.StorageColumn != nil || !obj.IsStandard {
-			key := f.APIName
-			if f.Type == schema.FieldLookup && f.StorageColumn != nil {
-				key = *f.StorageColumn
-			}
-			pairs = append(pairs, fmt.Sprintf(`%s, %s`,
-				quoteLit(key), selectExpr(qAlias, f)))
+			pairs = append(pairs, fmt.Sprintf(`%s, %s`, quoteLit(f.APIName), expandExpr(alias)))
+		} else {
+			pairs = append(pairs, fmt.Sprintf(`%s, %s`, quoteLit(jsonKey(f)), selectFieldExpr(qAlias, f)))
 		}
 	}
 
@@ -190,14 +189,20 @@ func buildFilters(obj *schema.ObjectDef, params *QueryParams) []sq.Sqlizer {
 	return conds
 }
 
-func applyOrder(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
-	dir := orderDir(params)
+func buildOrderBy(obj *schema.ObjectDef, params *QueryParams) []string {
+	var (
+		clauses []string
+		dir     = orderDir(params)
+	)
+
 	if params.Order != nil {
 		if fd := obj.FieldsByAPIName[params.Order.FieldAPIName]; fd != nil {
-			qb = qb.OrderBy(fmt.Sprintf(`%s %s`, filterExpr(qAlias, fd), dir))
+			clauses = append(clauses, fmt.Sprintf(`%s %s`, filterExpr(qAlias, fd), dir))
 		}
 	}
-	return qb.OrderBy(fmt.Sprintf(`%s."id" %s`, qi(qAlias), dir))
+
+	clauses = append(clauses, fmt.Sprintf(`%s."id" %s`, qi(qAlias), dir))
+	return clauses
 }
 
 func orderDir(params *QueryParams) string {

@@ -10,10 +10,8 @@ import (
 // qi is shorthand for schema.QuoteIdent.
 func qi(name string) string { return schema.QuoteIdent(name) }
 
-// quoteLit returns a single-quoted SQL string literal with escaping.
-func quoteLit(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
-}
+// quoteLit wraps s in single quotes for use as a SQL string literal.
+func quoteLit(s string) string { return "'" + s + "'" }
 
 // expandAlias returns the join alias for an expand field, e.g. "_xp_organization".
 func expandAlias(fieldName string) string { return "_xp_" + fieldName }
@@ -61,29 +59,23 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 		if child, ok := childSet[f.APIName]; ok && depth < maxExpandDepth-1 {
 			childName := name + "__" + child.FieldName
 			childAlias := expandAlias(childName)
-			cols = append(cols, fmt.Sprintf(
-				`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
-				qi(childAlias), qi(childAlias), qi(f.APIName)))
+			cols = append(cols, fmt.Sprintf(`%s AS %s`, expandExpr(childAlias), qi(f.APIName)))
 
 			childRef := fkRef(inner, child.Field)
 			nj, na := buildLateral(child, childRef, name+"__", depth+1)
 			nestedJoins = append(nestedJoins, nj)
 			args = append(args, na...)
-		} else if f.StorageColumn != nil || !target.IsStandard {
-			cols = append(cols, fmt.Sprintf(`%s AS %s`,
-				selectExpr(inner, &f), qi(f.APIName)))
+		} else {
+			cols = append(cols, fmt.Sprintf(`%s AS %s`, selectFieldExpr(inner, &f), qi(f.APIName)))
 		}
 	}
 
-	// FROM + WHERE
-	var from, whereClause string
-	if target.IsStandard {
-		from = target.TableName() + " " + qi(inner)
-		whereClause = fmt.Sprintf(`%s."id" = %s`, qi(inner), outerRef)
-	} else {
-		from = fmt.Sprintf(`"metadata"."records" %s`, qi(inner))
-		whereClause = fmt.Sprintf(`%s."object_id" = ? AND %s."id" = %s`, qi(inner), qi(inner), outerRef)
-		args = append(args, target.ID)
+	from, baseWhere := tableSource(target, inner)
+	joinCond := fmt.Sprintf(`%s."id" = %s`, qi(inner), outerRef)
+	if baseWhere != nil {
+		baseSql, baseArgs, _ := baseWhere.ToSql()
+		joinCond = baseSql + " AND " + joinCond
+		args = append(args, baseArgs...)
 	}
 
 	joinPrefix := ""
@@ -96,7 +88,7 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 		strings.Join(cols, ", "),
 		from,
 		strings.Join(nestedJoins, " "),
-		whereClause,
+		joinCond,
 		qi(alias))
 
 	return sql, args

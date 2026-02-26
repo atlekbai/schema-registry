@@ -54,7 +54,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	query.ResolveExpands(params, obj, s.cache)
+	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
 	builder := query.NewBuilder(obj)
 
 	g, gctx := errgroup.WithContext(ctx)
@@ -68,7 +68,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 
 	var rows []jsonRow
 	g.Go(func() error {
-		sqlStr, args, err := builder.BuildList(obj, params)
+		sqlStr, args, err := builder.BuildList(params)
 		if err != nil {
 			return err
 		}
@@ -129,10 +129,10 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	query.ResolveExpands(params, obj, s.cache)
+	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
 	builder := query.NewBuilder(obj)
 
-	sqlStr, args, err := builder.BuildGetByID(obj, id, params)
+	sqlStr, args, err := builder.BuildGetByID(id, params)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("build query: %w", err))
 	}
@@ -157,7 +157,7 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 // resolveCount uses the EXPLAIN trick for cheap estimation on large tables,
 // falling back to exact count only when the planner estimate is small.
 func (s *RegistryService) resolveCount(ctx context.Context, builder query.Builder, obj *schema.ObjectDef, params *query.QueryParams) (int64, error) {
-	estSQL, estArgs, err := builder.BuildEstimate(obj, params)
+	estSQL, estArgs, err := builder.BuildEstimate(params)
 	if err != nil {
 		return 0, err
 	}
@@ -171,7 +171,7 @@ func (s *RegistryService) resolveCount(ctx context.Context, builder query.Builde
 	estimated := parsePlanRows(planJSON)
 
 	if estimated <= exactCountThreshold {
-		countSQL, countArgs, err := builder.BuildCount(obj, params)
+		countSQL, countArgs, err := builder.BuildCount(params)
 		if err != nil {
 			return estimated, nil
 		}
