@@ -1,9 +1,15 @@
 package query
 
 import (
+	"fmt"
+	"strings"
+
+	sq "github.com/Masterminds/squirrel"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
+
+const qAlias = "_e"
 
 // Builder generates SQL queries for a given object definition.
 type Builder interface {
@@ -20,10 +26,203 @@ func isSystemField(apiName string) bool {
 	return apiName == "id" || apiName == "created_at" || apiName == "updated_at"
 }
 
-// NewBuilder returns the appropriate query builder for the object type.
-func NewBuilder(obj *schema.ObjectDef) Builder {
-	if obj.IsStandard {
-		return &StandardBuilder{}
+// QueryBuilder builds SQL for both standard and custom objects.
+type QueryBuilder struct{}
+
+// NewBuilder returns a query builder for the given object.
+func NewBuilder(_ *schema.ObjectDef) Builder {
+	return &QueryBuilder{}
+}
+
+func (b *QueryBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+	expandSet := makeExpandSet(params.ExpandPlans)
+	jsonExpr := buildJsonObject(obj, params, expandSet)
+
+	columns := []string{jsonExpr + " AS _row"}
+	columns = append(columns, fmt.Sprintf(`%s."id"::text AS _cursor_id`, qi(qAlias)))
+	if params.Order != nil {
+		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
+		if fd != nil {
+			col := filterExpr(qAlias, fd)
+			columns = append(columns, fmt.Sprintf(`%s::text AS _cursor_val`, col))
+		}
 	}
-	return &CustomBuilder{}
+
+	from, baseWhere := tableSource(obj, qAlias)
+	qb := sq.Select(columns...).From(from).PlaceholderFormat(sq.Dollar)
+	if baseWhere != nil {
+		qb = qb.Where(baseWhere)
+	}
+
+	qb = addLateralJoins(qb, params)
+	qb = applyFilters(qb, obj, params)
+	qb = applyOrder(qb, obj, params)
+	qb = applyCursor(qb, obj, params)
+	qb = qb.Suffix("LIMIT ?", params.Limit+1)
+
+	return qb.ToSql()
+}
+
+func (b *QueryBuilder) BuildGetByID(obj *schema.ObjectDef, id uuid.UUID, params *QueryParams) (string, []any, error) {
+	expandSet := makeExpandSet(params.ExpandPlans)
+	jsonExpr := buildJsonObject(obj, params, expandSet)
+
+	columns := []string{jsonExpr + " AS _row"}
+
+	from, baseWhere := tableSource(obj, qAlias)
+	qb := sq.Select(columns...).
+		From(from).
+		Where(sq.Eq{qi(qAlias) + `."id"`: id}).
+		PlaceholderFormat(sq.Dollar).
+		Limit(1)
+	if baseWhere != nil {
+		qb = qb.Where(baseWhere)
+	}
+
+	qb = addLateralJoins(qb, params)
+
+	return qb.ToSql()
+}
+
+func (b *QueryBuilder) BuildCount(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+	from, baseWhere := tableSource(obj, qAlias)
+	qb := sq.Select("count(*)").From(from).PlaceholderFormat(sq.Dollar)
+	if baseWhere != nil {
+		qb = qb.Where(baseWhere)
+	}
+	qb = applyFilters(qb, obj, params)
+	return qb.ToSql()
+}
+
+func (b *QueryBuilder) BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error) {
+	from, baseWhere := tableSource(obj, qAlias)
+	qb := sq.Select("1").From(from).PlaceholderFormat(sq.Dollar)
+	if baseWhere != nil {
+		qb = qb.Where(baseWhere)
+	}
+	qb = applyFilters(qb, obj, params)
+	return qb.ToSql()
+}
+
+// buildJsonObject builds a json_build_object(...) expression for the SELECT clause.
+func buildJsonObject(obj *schema.ObjectDef, params *QueryParams, expandSet map[string]*ExpandPlan) string {
+	var pairs []string
+	pairs = append(pairs,
+		fmt.Sprintf(`'id', %s."id"`, qi(qAlias)),
+		fmt.Sprintf(`'created_at', %s."created_at"`, qi(qAlias)),
+		fmt.Sprintf(`'updated_at', %s."updated_at"`, qi(qAlias)),
+	)
+
+	fields := resolveFields(obj, params, expandSet)
+	for _, f := range fields {
+		if isSystemField(f.APIName) {
+			continue
+		}
+		if ep, ok := expandSet[f.APIName]; ok {
+			alias := expandAlias(ep.FieldName)
+			pairs = append(pairs, fmt.Sprintf(`%s, CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END`,
+				quoteLit(f.APIName), qi(alias), qi(alias)))
+		} else if f.StorageColumn != nil || !obj.IsStandard {
+			key := f.APIName
+			if f.Type == schema.FieldLookup && f.StorageColumn != nil {
+				key = *f.StorageColumn
+			}
+			pairs = append(pairs, fmt.Sprintf(`%s, %s`,
+				quoteLit(key), selectExpr(qAlias, f)))
+		}
+	}
+
+	return fmt.Sprintf("json_build_object(%s)", strings.Join(pairs, ", "))
+}
+
+// resolveFields returns which fields to include. Expanded fields are always included.
+func resolveFields(obj *schema.ObjectDef, params *QueryParams, expandSet map[string]*ExpandPlan) []*schema.FieldDef {
+	if len(params.Select) > 0 {
+		seen := make(map[string]bool)
+		var fields []*schema.FieldDef
+		for _, name := range params.Select {
+			if f, ok := obj.FieldsByAPIName[name]; ok {
+				fields = append(fields, f)
+				seen[name] = true
+			}
+		}
+		// Ensure expanded fields are always included
+		for name := range expandSet {
+			if !seen[name] {
+				if f, ok := obj.FieldsByAPIName[name]; ok {
+					fields = append(fields, f)
+				}
+			}
+		}
+		return fields
+	}
+
+	fields := make([]*schema.FieldDef, 0, len(obj.Fields))
+	for i := range obj.Fields {
+		fields = append(fields, &obj.Fields[i])
+	}
+	return fields
+}
+
+func addLateralJoins(qb sq.SelectBuilder, params *QueryParams) sq.SelectBuilder {
+	for i := range params.ExpandPlans {
+		ep := &params.ExpandPlans[i]
+		outerRef := fkRef(qAlias, ep.Field)
+		joinSQL, joinArgs := buildLateral(ep, outerRef, "", 0)
+		qb = qb.LeftJoin(joinSQL, joinArgs...)
+	}
+	return qb
+}
+
+func applyFilters(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
+	for _, f := range params.Filters {
+		fd := obj.FieldsByAPIName[f.FieldAPIName]
+		if fd == nil {
+			continue
+		}
+		col := filterExpr(qAlias, fd)
+		qb = applyFilter(qb, col, f)
+	}
+	return qb
+}
+
+func applyOrder(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
+	if params.Order != nil {
+		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
+		if fd != nil {
+			col := filterExpr(qAlias, fd)
+			dir := "ASC"
+			if params.Order.Desc {
+				dir = "DESC"
+			}
+			qb = qb.OrderBy(fmt.Sprintf(`%s %s, %s."id" %s`, col, dir, qi(qAlias), dir))
+		}
+	} else {
+		qb = qb.OrderBy(fmt.Sprintf(`%s."id" ASC`, qi(qAlias)))
+	}
+	return qb
+}
+
+func applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
+	if params.Cursor == nil {
+		return qb
+	}
+	idCol := fmt.Sprintf(`%s."id"`, qi(qAlias))
+
+	if params.Order != nil && params.Cursor.OrderVal != "" {
+		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
+		if fd != nil {
+			sortCol := filterExpr(qAlias, fd)
+			cmp := ">"
+			if params.Order.Desc {
+				cmp = "<"
+			}
+			qb = qb.Where(fmt.Sprintf(`(%s, %s) %s (?, ?)`, sortCol, idCol, cmp),
+				params.Cursor.OrderVal, params.Cursor.ID)
+			return qb
+		}
+	}
+
+	qb = qb.Where(sq.Gt{idCol: params.Cursor.ID})
+	return qb
 }

@@ -15,10 +15,10 @@ func quoteLit(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
-// expandAlias returns the join alias for an expand field, e.g. "_xp_Organization".
+// expandAlias returns the join alias for an expand field, e.g. "_xp_organization".
 func expandAlias(fieldName string) string { return "_xp_" + fieldName }
 
-// expandInner returns the inner table alias inside a lateral, e.g. "_xp_Organization_t".
+// expandInner returns the inner table alias inside a lateral, e.g. "_xp_organization_t".
 func expandInner(fieldName string) string { return "_xp_" + fieldName + "_t" }
 
 // makeExpandSet indexes expand plans by field name.
@@ -30,24 +30,13 @@ func makeExpandSet(plans []ExpandPlan) map[string]*ExpandPlan {
 	return m
 }
 
-// buildStandardLateral builds a LEFT JOIN LATERAL clause for a standard source object.
-// outerAlias is the alias of the outer table (e.g. "_e").
-func buildStandardLateral(ep *ExpandPlan, outerAlias string) (sql string, args []any) {
-	fkCol := *ep.Field.StorageColumn
-	outerRef := fmt.Sprintf(`%s.%s`, qi(outerAlias), qi(fkCol))
-	return buildLateral(ep, outerRef, "")
-}
+const maxExpandDepth = 2
 
-// buildCustomLateral builds a LEFT JOIN LATERAL clause for a custom source object.
-func buildCustomLateral(ep *ExpandPlan, outerAlias string) (sql string, args []any) {
-	outerRef := fmt.Sprintf(`(%s."data"->>%s)::uuid`, qi(outerAlias), quoteLit(ep.FieldName))
-	return buildLateral(ep, outerRef, "")
-}
-
-// buildLateral builds the LATERAL join SQL for an expand plan.
+// buildLateral builds a LATERAL join clause for an expand plan.
 // outerRef is the SQL expression referencing the FK from the outer query.
 // prefix namespaces nested aliases to avoid collisions.
-func buildLateral(ep *ExpandPlan, outerRef, prefix string) (sql string, args []any) {
+// depth controls recursion: 0 = top level (caller adds LEFT JOIN via Squirrel), 1+ = nested.
+func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql string, args []any) {
 	target := ep.Target
 	name := prefix + ep.FieldName
 	inner := expandInner(name)
@@ -58,122 +47,57 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string) (sql string, args []a
 	var cols []string
 	var nestedJoins []string
 
+	// System fields — always included
+	cols = append(cols,
+		fmt.Sprintf(`%s."id"`, qi(inner)),
+		fmt.Sprintf(`%s."created_at"`, qi(inner)),
+		fmt.Sprintf(`%s."updated_at"`, qi(inner)),
+	)
+
+	for _, f := range target.Fields {
+		if isSystemField(f.APIName) {
+			continue
+		}
+		if child, ok := childSet[f.APIName]; ok && depth < maxExpandDepth-1 {
+			childName := name + "__" + child.FieldName
+			childAlias := expandAlias(childName)
+			cols = append(cols, fmt.Sprintf(
+				`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
+				qi(childAlias), qi(childAlias), qi(f.APIName)))
+
+			childRef := fkRef(inner, child.Field)
+			nj, na := buildLateral(child, childRef, name+"__", depth+1)
+			nestedJoins = append(nestedJoins, nj)
+			args = append(args, na...)
+		} else if f.StorageColumn != nil || !target.IsStandard {
+			cols = append(cols, fmt.Sprintf(`%s AS %s`,
+				selectExpr(inner, &f), qi(f.APIName)))
+		}
+	}
+
+	// FROM + WHERE
+	var from, whereClause string
 	if target.IsStandard {
-		cols = append(cols,
-			fmt.Sprintf(`%s."id"`, qi(inner)),
-			fmt.Sprintf(`%s."created_at"`, qi(inner)),
-			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-		)
-		for _, f := range target.Fields {
-			if f.StorageColumn == nil || isSystemField(f.APIName) {
-				continue
-			}
-			if child, ok := childSet[f.APIName]; ok {
-				childName := name + "__" + child.FieldName
-				childAlias := expandAlias(childName)
-				cols = append(cols, fmt.Sprintf(
-					`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
-					qi(childAlias), qi(childAlias), qi(f.APIName)))
-
-				childRef := fmt.Sprintf(`%s.%s`, qi(inner), qi(*child.Field.StorageColumn))
-				nj, na := buildNestedLateral(child, childRef, name+"__")
-				nestedJoins = append(nestedJoins, nj)
-				args = append(args, na...)
-			} else {
-				cols = append(cols, fmt.Sprintf(`%s.%s AS %s`,
-					qi(inner), qi(*f.StorageColumn), qi(f.APIName)))
-			}
-		}
-		sql = fmt.Sprintf(`LATERAL (SELECT %s FROM %s %s %s WHERE %s."id" = %s) %s ON TRUE`,
-			strings.Join(cols, ", "),
-			target.TableName(), qi(inner),
-			strings.Join(nestedJoins, " "),
-			qi(inner), outerRef, qi(alias))
+		from = target.TableName() + " " + qi(inner)
+		whereClause = fmt.Sprintf(`%s."id" = %s`, qi(inner), outerRef)
 	} else {
-		// Custom target: extract individual fields from data using -> (preserves JSONB types)
-		cols = append(cols,
-			fmt.Sprintf(`%s."id"`, qi(inner)),
-			fmt.Sprintf(`%s."created_at"`, qi(inner)),
-			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-		)
-		for _, f := range target.Fields {
-			if isSystemField(f.APIName) {
-				continue
-			}
-			if child, ok := childSet[f.APIName]; ok {
-				childName := name + "__" + child.FieldName
-				childAlias := expandAlias(childName)
-				cols = append(cols, fmt.Sprintf(
-					`CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END AS %s`,
-					qi(childAlias), qi(childAlias), qi(f.APIName)))
-
-				childRef := fmt.Sprintf(`(%s."data"->>%s)::uuid`, qi(inner), quoteLit(child.FieldName))
-				nj, na := buildNestedLateral(child, childRef, name+"__")
-				nestedJoins = append(nestedJoins, nj)
-				args = append(args, na...)
-			} else {
-				cols = append(cols, fmt.Sprintf(`%s."data"->%s AS %s`,
-					qi(inner), quoteLit(f.APIName), qi(f.APIName)))
-			}
-		}
-		sql = fmt.Sprintf(
-			`LATERAL (SELECT %s FROM "metadata"."records" %s %s WHERE %s."object_id" = ? AND %s."id" = %s) %s ON TRUE`,
-			strings.Join(cols, ", "),
-			qi(inner),
-			strings.Join(nestedJoins, " "),
-			qi(inner), qi(inner), outerRef, qi(alias))
+		from = fmt.Sprintf(`"metadata"."records" %s`, qi(inner))
+		whereClause = fmt.Sprintf(`%s."object_id" = ? AND %s."id" = %s`, qi(inner), qi(inner), outerRef)
 		args = append(args, target.ID)
 	}
 
-	return sql, args
-}
-
-// buildNestedLateral builds a level-2 lateral join (no further nesting).
-func buildNestedLateral(child *ExpandPlan, outerRef, prefix string) (sql string, args []any) {
-	target := child.Target
-	name := prefix + child.FieldName
-	inner := expandInner(name)
-	alias := expandAlias(name)
-
-	var cols []string
-
-	if target.IsStandard {
-		cols = append(cols,
-			fmt.Sprintf(`%s."id"`, qi(inner)),
-			fmt.Sprintf(`%s."created_at"`, qi(inner)),
-			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-		)
-		for _, f := range target.Fields {
-			if f.StorageColumn != nil && !isSystemField(f.APIName) {
-				cols = append(cols, fmt.Sprintf(`%s.%s AS %s`,
-					qi(inner), qi(*f.StorageColumn), qi(f.APIName)))
-			}
-		}
-		sql = fmt.Sprintf(`LEFT JOIN LATERAL (SELECT %s FROM %s %s WHERE %s."id" = %s) %s ON TRUE`,
-			strings.Join(cols, ", "),
-			target.TableName(), qi(inner),
-			qi(inner), outerRef, qi(alias))
-	} else {
-		// Custom target: extract individual fields from data
-		cols = append(cols,
-			fmt.Sprintf(`%s."id"`, qi(inner)),
-			fmt.Sprintf(`%s."created_at"`, qi(inner)),
-			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
-		)
-		for _, f := range target.Fields {
-			if isSystemField(f.APIName) {
-				continue
-			}
-			cols = append(cols, fmt.Sprintf(`%s."data"->%s AS %s`,
-				qi(inner), quoteLit(f.APIName), qi(f.APIName)))
-		}
-		sql = fmt.Sprintf(
-			`LEFT JOIN LATERAL (SELECT %s FROM "metadata"."records" %s WHERE %s."object_id" = ? AND %s."id" = %s) %s ON TRUE`,
-			strings.Join(cols, ", "),
-			qi(inner),
-			qi(inner), qi(inner), outerRef, qi(alias))
-		args = append(args, target.ID)
+	joinPrefix := ""
+	if depth > 0 {
+		joinPrefix = "LEFT JOIN "
 	}
+
+	sql = fmt.Sprintf(`%sLATERAL (SELECT %s FROM %s %s WHERE %s) %s ON TRUE`,
+		joinPrefix,
+		strings.Join(cols, ", "),
+		from,
+		strings.Join(nestedJoins, " "),
+		whereClause,
+		qi(alias))
 
 	return sql, args
 }
