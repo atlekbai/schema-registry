@@ -52,7 +52,8 @@ tasks:
       - migrations/000002_metadata_functions.up.sql
       - migrations/000003_core.up.sql
       - migrations/000004_metadata_core.up.sql
-      - migrations/000005_seed.up.sql
+      - migrations/000005_employees_ltree.up.sql
+      - migrations/000006_seed.up.sql
 
   migrate-down:
     desc: Rollback all migrations
@@ -64,7 +65,8 @@ tasks:
           docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
       - echo "Rollback completed!"
     sources:
-      - migrations/000005_seed.down.sql
+      - migrations/000006_seed.down.sql
+      - migrations/000005_employees_ltree.down.sql
       - migrations/000004_metadata_core.down.sql
       - migrations/000003_core.down.sql
       - migrations/000002_metadata_functions.down.sql
