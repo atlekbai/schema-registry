@@ -23,8 +23,8 @@ func (b *CustomBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) (s
 	if params.Order != nil {
 		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
-			columns = append(columns, fmt.Sprintf(`%s."data"->>%s AS _cursor_val`,
-				qi(cstAlias), quoteLit(params.Order.FieldAPIName)))
+			col := customColumnAccessor(cstAlias, params.Order.FieldAPIName, fd)
+			columns = append(columns, fmt.Sprintf(`%s::text AS _cursor_val`, col))
 		}
 	}
 
@@ -93,14 +93,18 @@ func (b *CustomBuilder) jsonObject(obj *schema.ObjectDef, params *QueryParams, e
 
 	fields := b.resolveFields(obj, params, expandSet)
 	for _, f := range fields {
+		if isSystemField(f.APIName) {
+			continue
+		}
 		if ep, ok := expandSet[f.APIName]; ok {
 			alias := expandAlias(ep.FieldName)
 			pairs = append(pairs, fmt.Sprintf(`%s, CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END`,
 				quoteLit(f.APIName), qi(alias), qi(alias)))
 		} else {
+			key := f.APIName
 			// Use -> (single arrow) to preserve JSONB types (numbers, booleans, etc.)
 			pairs = append(pairs, fmt.Sprintf(`%s, %s."data"->%s`,
-				quoteLit(f.APIName), qi(cstAlias), quoteLit(f.APIName)))
+				quoteLit(key), qi(cstAlias), quoteLit(f.APIName)))
 		}
 	}
 
@@ -149,7 +153,7 @@ func (b *CustomBuilder) applyFilters(qb sq.SelectBuilder, obj *schema.ObjectDef,
 		if fd == nil {
 			continue
 		}
-		col := jsonbAccessor(cstAlias, f.FieldAPIName, fd)
+		col := customColumnAccessor(cstAlias, f.FieldAPIName, fd)
 		qb = applyFilter(qb, col, f)
 	}
 	return qb
@@ -159,7 +163,7 @@ func (b *CustomBuilder) applyOrder(qb sq.SelectBuilder, obj *schema.ObjectDef, p
 	if params.Order != nil {
 		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
-			col := jsonbAccessor(cstAlias, params.Order.FieldAPIName, fd)
+			col := customColumnAccessor(cstAlias, params.Order.FieldAPIName, fd)
 			dir := "ASC"
 			if params.Order.Desc {
 				dir = "DESC"
@@ -181,7 +185,7 @@ func (b *CustomBuilder) applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, 
 	if params.Order != nil && params.Cursor.OrderVal != "" {
 		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
-			sortCol := jsonbAccessor(cstAlias, params.Order.FieldAPIName, fd)
+			sortCol := customColumnAccessor(cstAlias, params.Order.FieldAPIName, fd)
 			cmp := ">"
 			if params.Order.Desc {
 				cmp = "<"
@@ -196,8 +200,12 @@ func (b *CustomBuilder) applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, 
 	return qb
 }
 
-// jsonbAccessor returns the JSONB extraction expression with appropriate type casting.
-func jsonbAccessor(alias, fieldName string, fd *schema.FieldDef) string {
+// customColumnAccessor returns the SQL column expression for a custom object field.
+// System fields (with StorageColumn) use direct column access; custom fields use JSONB extraction.
+func customColumnAccessor(alias, fieldName string, fd *schema.FieldDef) string {
+	if fd.StorageColumn != nil {
+		return fmt.Sprintf(`%s.%s`, qi(alias), qi(*fd.StorageColumn))
+	}
 	base := fmt.Sprintf(`%s."data"->>%s`, qi(alias), quoteLit(fieldName))
 	if fd.IsNumeric() {
 		return fmt.Sprintf(`(%s."data"->>%s)::numeric`, qi(alias), quoteLit(fieldName))

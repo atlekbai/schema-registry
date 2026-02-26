@@ -89,13 +89,20 @@ func (b *StandardBuilder) jsonObject(obj *schema.ObjectDef, params *QueryParams,
 
 	fields := b.resolveFields(obj, params, expandSet)
 	for _, f := range fields {
+		if isSystemField(f.APIName) {
+			continue
+		}
 		if ep, ok := expandSet[f.APIName]; ok {
 			alias := expandAlias(ep.FieldName)
 			pairs = append(pairs, fmt.Sprintf(`%s, CASE WHEN %s."id" IS NOT NULL THEN row_to_json(%s.*)::jsonb ELSE NULL END`,
 				quoteLit(f.APIName), qi(alias), qi(alias)))
 		} else if f.StorageColumn != nil {
+			key := f.APIName
+			if f.Type == schema.FieldLookup {
+				key = *f.StorageColumn
+			}
 			pairs = append(pairs, fmt.Sprintf(`%s, %s.%s`,
-				quoteLit(f.APIName), qi(stdAlias), qi(*f.StorageColumn)))
+				quoteLit(key), qi(stdAlias), qi(*f.StorageColumn)))
 		}
 	}
 

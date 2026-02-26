@@ -35,6 +35,13 @@ BEGIN
 	)
 	RETURNING "id" INTO v_object_id;
 
+	-- Auto-register system fields present on every table
+	INSERT INTO metadata.fields ("object_id", "api_name", "title", "type", "is_required", "is_standard", "storage_column")
+	VALUES
+		(v_object_id, 'id', 'ID', 'TEXT', TRUE, TRUE, 'id'),
+		(v_object_id, 'created_at', 'Created At', 'DATETIME', TRUE, TRUE, 'created_at'),
+		(v_object_id, 'updated_at', 'Updated At', 'DATETIME', TRUE, TRUE, 'updated_at');
+
 	RETURN v_object_id;
 END;
 $$;

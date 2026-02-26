@@ -14,6 +14,12 @@ type Builder interface {
 	BuildEstimate(obj *schema.ObjectDef, params *QueryParams) (string, []any, error)
 }
 
+// isSystemField returns true for system fields (id, created_at, updated_at)
+// that are always emitted by jsonObject and should be skipped in the field loop.
+func isSystemField(apiName string) bool {
+	return apiName == "id" || apiName == "created_at" || apiName == "updated_at"
+}
+
 // NewBuilder returns the appropriate query builder for the object type.
 func NewBuilder(obj *schema.ObjectDef) Builder {
 	if obj.IsStandard {

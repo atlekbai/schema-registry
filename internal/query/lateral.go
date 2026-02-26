@@ -65,7 +65,7 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string) (sql string, args []a
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
 		)
 		for _, f := range target.Fields {
-			if f.StorageColumn == nil {
+			if f.StorageColumn == nil || isSystemField(f.APIName) {
 				continue
 			}
 			if child, ok := childSet[f.APIName]; ok {
@@ -97,6 +97,9 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string) (sql string, args []a
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
 		)
 		for _, f := range target.Fields {
+			if isSystemField(f.APIName) {
+				continue
+			}
 			if child, ok := childSet[f.APIName]; ok {
 				childName := name + "__" + child.FieldName
 				childAlias := expandAlias(childName)
@@ -141,7 +144,7 @@ func buildNestedLateral(child *ExpandPlan, outerRef, prefix string) (sql string,
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
 		)
 		for _, f := range target.Fields {
-			if f.StorageColumn != nil {
+			if f.StorageColumn != nil && !isSystemField(f.APIName) {
 				cols = append(cols, fmt.Sprintf(`%s.%s AS %s`,
 					qi(inner), qi(*f.StorageColumn), qi(f.APIName)))
 			}
@@ -158,6 +161,9 @@ func buildNestedLateral(child *ExpandPlan, outerRef, prefix string) (sql string,
 			fmt.Sprintf(`%s."updated_at"`, qi(inner)),
 		)
 		for _, f := range target.Fields {
+			if isSystemField(f.APIName) {
+				continue
+			}
 			cols = append(cols, fmt.Sprintf(`%s."data"->%s AS %s`,
 				qi(inner), quoteLit(f.APIName), qi(f.APIName)))
 		}

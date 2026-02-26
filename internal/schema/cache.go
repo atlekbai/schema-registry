@@ -46,24 +46,24 @@ func (c *Cache) Load(ctx context.Context, pool *pgxpool.Pool) error {
 
 	for rows.Next() {
 		var (
-			oID                  uuid.UUID
-			oAPIName             string
-			oTitle               string
-			oPluralTitle         string
-			oIsStandard          bool
-			oStorageSchema       *string
-			oStorageTable        *string
-			oSupportsCustom      bool
-			fID                  *uuid.UUID
-			fAPIName             *string
-			fTitle               *string
-			fType                *string
-			fTypeConfig          json.RawMessage
-			fIsRequired          *bool
-			fIsUnique            *bool
-			fIsStandard          *bool
-			fStorageColumn       *string
-			fLookupObjectID      *uuid.UUID
+			oID             uuid.UUID
+			oAPIName        string
+			oTitle          string
+			oPluralTitle    string
+			oIsStandard     bool
+			oStorageSchema  *string
+			oStorageTable   *string
+			oSupportsCustom bool
+			fID             *uuid.UUID
+			fAPIName        *string
+			fTitle          *string
+			fType           *string
+			fTypeConfig     json.RawMessage
+			fIsRequired     *bool
+			fIsUnique       *bool
+			fIsStandard     *bool
+			fStorageColumn  *string
+			fLookupObjectID *uuid.UUID
 		)
 
 		err := rows.Scan(
