@@ -55,7 +55,9 @@ func (b *QueryBuilder) BuildList(obj *schema.ObjectDef, params *QueryParams) (st
 	}
 
 	qb = addLateralJoins(qb, params)
-	qb = applyFilters(qb, obj, params)
+	for _, cond := range buildFilters(obj, params) {
+		qb = qb.Where(cond)
+	}
 	qb = applyOrder(qb, obj, params)
 	qb = applyCursor(qb, obj, params)
 	qb = qb.Suffix("LIMIT ?", params.Limit+1)
@@ -90,7 +92,9 @@ func (b *QueryBuilder) BuildCount(obj *schema.ObjectDef, params *QueryParams) (s
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	qb = applyFilters(qb, obj, params)
+	for _, cond := range buildFilters(obj, params) {
+		qb = qb.Where(cond)
+	}
 	return qb.ToSql()
 }
 
@@ -100,7 +104,9 @@ func (b *QueryBuilder) BuildEstimate(obj *schema.ObjectDef, params *QueryParams)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	qb = applyFilters(qb, obj, params)
+	for _, cond := range buildFilters(obj, params) {
+		qb = qb.Where(cond)
+	}
 	return qb.ToSql()
 }
 
@@ -174,33 +180,31 @@ func addLateralJoins(qb sq.SelectBuilder, params *QueryParams) sq.SelectBuilder 
 	return qb
 }
 
-func applyFilters(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
+func buildFilters(obj *schema.ObjectDef, params *QueryParams) []sq.Sqlizer {
+	var conds []sq.Sqlizer
 	for _, f := range params.Filters {
-		fd := obj.FieldsByAPIName[f.FieldAPIName]
-		if fd == nil {
-			continue
+		if fd := obj.FieldsByAPIName[f.FieldAPIName]; fd != nil {
+			conds = append(conds, filterCondition(filterExpr(qAlias, fd), f))
 		}
-		col := filterExpr(qAlias, fd)
-		qb = applyFilter(qb, col, f)
 	}
-	return qb
+	return conds
 }
 
 func applyOrder(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {
+	dir := orderDir(params)
 	if params.Order != nil {
-		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
-		if fd != nil {
-			col := filterExpr(qAlias, fd)
-			dir := "ASC"
-			if params.Order.Desc {
-				dir = "DESC"
-			}
-			qb = qb.OrderBy(fmt.Sprintf(`%s %s, %s."id" %s`, col, dir, qi(qAlias), dir))
+		if fd := obj.FieldsByAPIName[params.Order.FieldAPIName]; fd != nil {
+			qb = qb.OrderBy(fmt.Sprintf(`%s %s`, filterExpr(qAlias, fd), dir))
 		}
-	} else {
-		qb = qb.OrderBy(fmt.Sprintf(`%s."id" ASC`, qi(qAlias)))
 	}
-	return qb
+	return qb.OrderBy(fmt.Sprintf(`%s."id" %s`, qi(qAlias), dir))
+}
+
+func orderDir(params *QueryParams) string {
+	if params.Order != nil && params.Order.Desc {
+		return "DESC"
+	}
+	return "ASC"
 }
 
 func applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams) sq.SelectBuilder {

@@ -83,20 +83,17 @@ func SQLOp(op FilterOp) string {
 	}
 }
 
-// applyFilter adds a single filter condition to the query builder.
-func applyFilter(qb sq.SelectBuilder, col string, f Filter) sq.SelectBuilder {
+// filterCondition returns a Squirrel condition for a single filter.
+func filterCondition(col string, f Filter) sq.Sqlizer {
 	switch f.Op {
 	case OpIn:
-		// Use = ANY($1) instead of IN ($1,$2,...) for stable prepared statements.
-		qb = qb.Where(fmt.Sprintf(`%s = ANY(?)`, col), InValues(f.Value))
+		return sq.Expr(fmt.Sprintf(`%s = ANY(?)`, col), InValues(f.Value))
 	case OpIs:
 		if f.Value == "null" {
-			qb = qb.Where(sq.Eq{col: nil})
-		} else {
-			qb = qb.Where(sq.NotEq{col: nil})
+			return sq.Eq{col: nil}
 		}
-	default:
-		qb = qb.Where(fmt.Sprintf(`%s %s ?`, col, SQLOp(f.Op)), f.Value)
+		return sq.NotEq{col: nil}
 	}
-	return qb
+
+	return sq.Expr(fmt.Sprintf(`%s %s ?`, col, SQLOp(f.Op)), f.Value)
 }
