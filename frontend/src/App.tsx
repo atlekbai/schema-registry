@@ -6,10 +6,53 @@ import DataEditor, {
   type Item,
 } from '@glideapps/glide-data-grid'
 import '@glideapps/glide-data-grid/dist/index.css'
-import { fetchObjects, type ListResponse } from './api'
+import { fetchObjects, type ListResponse, type ObjectMeta } from './api'
+import ObjectsPage from './ObjectsPage'
+import ObjectDetail from './ObjectDetail'
 import './App.css'
 
+type Page = { kind: 'explorer' } | { kind: 'objects' } | { kind: 'object-detail'; objectId: string }
+
 function App() {
+  const [page, setPage] = useState<Page>({ kind: 'explorer' })
+
+  return (
+    <div className="app">
+      <header className="header">
+        <h1>Schema Registry</h1>
+        <nav className="tabs">
+          <button
+            className={page.kind === 'explorer' ? 'tab active' : 'tab'}
+            onClick={() => setPage({ kind: 'explorer' })}
+          >
+            Data Explorer
+          </button>
+          <button
+            className={page.kind === 'objects' || page.kind === 'object-detail' ? 'tab active' : 'tab'}
+            onClick={() => setPage({ kind: 'objects' })}
+          >
+            Objects
+          </button>
+        </nav>
+      </header>
+
+      {page.kind === 'explorer' && <DataExplorer />}
+      {page.kind === 'objects' && (
+        <ObjectsPage
+          onSelectObject={(obj: ObjectMeta) => setPage({ kind: 'object-detail', objectId: obj.id })}
+        />
+      )}
+      {page.kind === 'object-detail' && (
+        <ObjectDetail
+          objectId={page.objectId}
+          onBack={() => setPage({ kind: 'objects' })}
+        />
+      )}
+    </div>
+  )
+}
+
+function DataExplorer() {
   const [objectName, setObjectName] = useState('')
   const [inputValue, setInputValue] = useState('')
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
@@ -114,23 +157,20 @@ function App() {
   )
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>Schema Registry</h1>
-        <div className="controls">
-          <input
-            type="text"
-            placeholder="Object name (e.g. employees)"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            className="object-input"
-          />
-          <button onClick={handleLoad} disabled={loading || !inputValue.trim()}>
-            {loading ? 'Loading...' : 'Load'}
-          </button>
-        </div>
-      </header>
+    <>
+      <div className="controls">
+        <input
+          type="text"
+          placeholder="Object name (e.g. employees)"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="object-input"
+        />
+        <button onClick={handleLoad} disabled={loading || !inputValue.trim()}>
+          {loading ? 'Loading...' : 'Load'}
+        </button>
+      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -181,7 +221,7 @@ function App() {
           Enter an object name above and click <strong>Load</strong> to browse records.
         </div>
       )}
-    </div>
+    </>
   )
 }
 

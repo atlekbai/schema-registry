@@ -50,6 +50,7 @@ func main() {
 
 	services := []server.ConnectService{
 		service.NewRegistryService(pool, cache),
+		service.NewMetadataService(pool, cache),
 	}
 
 	vanguardServices := make([]*vanguard.Service, len(services))

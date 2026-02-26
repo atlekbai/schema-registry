@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package registry.v1;
+
+import "google/api/annotations.proto";
+import "registry/v1/metadata.proto";
+
+// MetadataService provides CRUDL for object and field definitions.
+service MetadataService {
+  // ── Objects ───────────────────────────────────────────────────────
+
+  rpc ListObjects(ListObjectsRequest) returns (ListObjectsResponse) {
+    option (google.api.http) = {get: "/api/meta/objects"};
+  }
+
+  rpc GetObject(GetObjectRequest) returns (GetObjectResponse) {
+    option (google.api.http) = {get: "/api/meta/objects/{id}"};
+  }
+
+  rpc CreateObject(CreateObjectRequest) returns (CreateObjectResponse) {
+    option (google.api.http) = {
+      post: "/api/meta/objects"
+      body: "*"
+    };
+  }
+
+  rpc UpdateObject(UpdateObjectRequest) returns (UpdateObjectResponse) {
+    option (google.api.http) = {
+      put: "/api/meta/objects/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse) {
+    option (google.api.http) = {delete: "/api/meta/objects/{id}"};
+  }
+
+  // ── Fields ────────────────────────────────────────────────────────
+
+  rpc ListFields(ListFieldsRequest) returns (ListFieldsResponse) {
+    option (google.api.http) = {get: "/api/meta/objects/{object_id}/fields"};
+  }
+
+  rpc GetField(GetFieldRequest) returns (GetFieldResponse) {
+    option (google.api.http) = {get: "/api/meta/objects/{object_id}/fields/{id}"};
+  }
+
+  rpc CreateField(CreateFieldRequest) returns (CreateFieldResponse) {
+    option (google.api.http) = {
+      post: "/api/meta/objects/{object_id}/fields"
+      body: "*"
+    };
+  }
+
+  rpc UpdateField(UpdateFieldRequest) returns (UpdateFieldResponse) {
+    option (google.api.http) = {
+      put: "/api/meta/objects/{object_id}/fields/{id}"
+      body: "*"
+    };
+  }
+
+  rpc DeleteField(DeleteFieldRequest) returns (DeleteFieldResponse) {
+    option (google.api.http) = {delete: "/api/meta/objects/{object_id}/fields/{id}"};
+  }
+}

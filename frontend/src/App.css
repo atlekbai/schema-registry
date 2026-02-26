@@ -68,3 +68,178 @@
   color: #9ca3af;
   font-size: 0.95rem;
 }
+
+/* ── Tabs ──────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tab {
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  font-weight: 500;
+  padding: 0.4em 0.8em;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab:hover {
+  background-color: #e8eaed;
+  color: #1a1a2e;
+}
+
+.tab.active {
+  background-color: #4361ee;
+  color: #fff;
+}
+
+/* ── Metadata pages ────────────────────────────────────────────── */
+
+.meta-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.meta-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meta-header h2,
+.meta-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.meta-desc {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background-color: #dbeafe;
+  color: #1d4ed8;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+/* ── Forms ──────────────────────────────────────────────────────── */
+
+.meta-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+
+.form-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.form-row label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  min-width: 100px;
+  color: #374151;
+}
+
+.form-row input[type="text"],
+.form-row input:not([type]),
+.form-row select {
+  flex: 1;
+}
+
+select {
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  padding: 0.5em 0.75em;
+  font-size: 0.875rem;
+  font-family: inherit;
+  background-color: #fff;
+  color: #1a1a2e;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+select:focus {
+  border-color: #4361ee;
+  box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+}
+
+/* ── Table ──────────────────────────────────────────────────────── */
+
+.meta-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.meta-table th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 2px solid #e5e7eb;
+  color: #6b7280;
+  font-weight: 600;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.meta-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.meta-table tr:hover td {
+  background-color: #f9fafb;
+}
+
+/* ── Utility buttons ───────────────────────────────────────────── */
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: #4361ee;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-btn:hover {
+  color: #3451d1;
+  background: transparent;
+}
+
+.danger-btn {
+  color: #dc2626;
+  border-color: #fecaca;
+  font-size: 0.75rem;
+  padding: 0.25em 0.5em;
+}
+
+.danger-btn:hover:not(:disabled) {
+  background-color: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}

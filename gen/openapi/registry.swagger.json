@@ -1,10 +1,13 @@
 {
   "swagger": "2.0",
   "info": {
-    "title": "registry/v1/registry.proto",
+    "title": "registry/v1/metadata.proto",
     "version": "version not set"
   },
   "tags": [
+    {
+      "name": "MetadataService"
+    },
     {
       "name": "RegistryService"
     }
@@ -16,6 +19,330 @@
     "application/json"
   ],
   "paths": {
+    "/api/meta/objects": {
+      "get": {
+        "operationId": "MetadataService_ListObjects",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListObjectsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "post": {
+        "operationId": "MetadataService_CreateObject",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateObjectResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1CreateObjectRequest"
+            }
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      }
+    },
+    "/api/meta/objects/{id}": {
+      "get": {
+        "operationId": "MetadataService_GetObject",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetObjectResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "delete": {
+        "operationId": "MetadataService_DeleteObject",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteObjectResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "put": {
+        "operationId": "MetadataService_UpdateObject",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateObjectResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MetadataServiceUpdateObjectBody"
+            }
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      }
+    },
+    "/api/meta/objects/{objectId}/fields": {
+      "get": {
+        "operationId": "MetadataService_ListFields",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ListFieldsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "post": {
+        "operationId": "MetadataService_CreateField",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1CreateFieldResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MetadataServiceCreateFieldBody"
+            }
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      }
+    },
+    "/api/meta/objects/{objectId}/fields/{id}": {
+      "get": {
+        "operationId": "MetadataService_GetField",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetFieldResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "delete": {
+        "operationId": "MetadataService_DeleteField",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteFieldResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      },
+      "put": {
+        "operationId": "MetadataService_UpdateField",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1UpdateFieldResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "objectId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MetadataServiceUpdateFieldBody"
+            }
+          }
+        ],
+        "tags": [
+          "MetadataService"
+        ]
+      }
+    },
     "/api/{objectName}": {
       "get": {
         "summary": "List returns a paginated list of records for the given object.",
@@ -146,6 +473,77 @@
     }
   },
   "definitions": {
+    "MetadataServiceCreateFieldBody": {
+      "type": "object",
+      "properties": {
+        "apiName": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "typeConfig": {
+          "type": "string",
+          "title": "JSON string"
+        },
+        "isRequired": {
+          "type": "boolean"
+        },
+        "isUnique": {
+          "type": "boolean"
+        },
+        "lookupObjectId": {
+          "type": "string"
+        }
+      }
+    },
+    "MetadataServiceUpdateFieldBody": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "typeConfig": {
+          "type": "string",
+          "title": "JSON string"
+        },
+        "isRequired": {
+          "type": "boolean"
+        },
+        "isUnique": {
+          "type": "boolean"
+        }
+      }
+    },
+    "MetadataServiceUpdateObjectBody": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "pluralTitle": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "supportsCustomFields": {
+          "type": "boolean"
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
@@ -182,11 +580,144 @@
         }
       }
     },
+    "v1CreateFieldResponse": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/v1FieldMeta"
+        }
+      }
+    },
+    "v1CreateObjectRequest": {
+      "type": "object",
+      "properties": {
+        "apiName": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "pluralTitle": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "supportsCustomFields": {
+          "type": "boolean"
+        }
+      }
+    },
+    "v1CreateObjectResponse": {
+      "type": "object",
+      "properties": {
+        "object": {
+          "$ref": "#/definitions/v1ObjectMeta"
+        }
+      }
+    },
+    "v1DeleteFieldResponse": {
+      "type": "object"
+    },
+    "v1DeleteObjectResponse": {
+      "type": "object"
+    },
+    "v1FieldMeta": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "objectId": {
+          "type": "string"
+        },
+        "apiName": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "typeConfig": {
+          "type": "string",
+          "title": "JSON string"
+        },
+        "isRequired": {
+          "type": "boolean"
+        },
+        "isUnique": {
+          "type": "boolean"
+        },
+        "isStandard": {
+          "type": "boolean"
+        },
+        "storageColumn": {
+          "type": "string"
+        },
+        "lookupObjectId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "v1GetFieldResponse": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/v1FieldMeta"
+        }
+      }
+    },
+    "v1GetObjectResponse": {
+      "type": "object",
+      "properties": {
+        "object": {
+          "$ref": "#/definitions/v1ObjectMeta"
+        }
+      }
+    },
     "v1GetResponse": {
       "type": "object",
       "properties": {
         "record": {
           "type": "object"
+        }
+      }
+    },
+    "v1ListFieldsResponse": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1FieldMeta"
+          }
+        }
+      }
+    },
+    "v1ListObjectsResponse": {
+      "type": "object",
+      "properties": {
+        "objects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1ObjectMeta"
+          }
         }
       }
     },
@@ -205,6 +736,70 @@
           "items": {
             "type": "object"
           }
+        }
+      }
+    },
+    "v1ObjectMeta": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "apiName": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "pluralTitle": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "isStandard": {
+          "type": "boolean"
+        },
+        "storageSchema": {
+          "type": "string"
+        },
+        "storageTable": {
+          "type": "string"
+        },
+        "supportsCustomFields": {
+          "type": "boolean"
+        },
+        "categoryId": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1FieldMeta"
+          }
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "v1UpdateFieldResponse": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "$ref": "#/definitions/v1FieldMeta"
+        }
+      }
+    },
+    "v1UpdateObjectResponse": {
+      "type": "object",
+      "properties": {
+        "object": {
+          "$ref": "#/definitions/v1ObjectMeta"
         }
       }
     }
