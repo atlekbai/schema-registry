@@ -72,6 +72,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 		if err != nil {
 			return err
 		}
+
 		dbRows, err := s.pool.Query(gctx, sqlStr, args...)
 		if err != nil {
 			return err
