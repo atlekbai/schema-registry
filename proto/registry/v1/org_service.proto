@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package registry.v1;
+
+import "buf/validate/validate.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/struct.proto";
+
+service OrgService {
+  // Query parses a DSL expression and executes the corresponding org-chart operation.
+  // Supported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)
+  rpc Query(QueryRequest) returns (QueryResponse) {
+    option (google.api.http) = {
+      post: "/api/org/query"
+      body: "*"
+    };
+  }
+}
+
+message QueryRequest {
+  // DSL expression, e.g. "CHAIN(uuid, -1)" or "REPORTSTO(uuid, uuid)".
+  string query = 1 [(buf.validate.field).string.min_len = 1];
+  // Optional list parameters (ignored by REPORTSTO).
+  string select = 2;
+  string expand = 3;
+  string order = 4;
+  int32 limit = 5 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
+  string cursor = 6;
+}
+
+message QueryResponse {
+  // List results (CHAIN, PEERS, REPORTS).
+  repeated google.protobuf.Struct results = 1;
+  int64 total_count = 2;
+  optional string next_cursor = 3;
+  // Boolean result (REPORTSTO).
+  optional bool reports_to = 4;
+}

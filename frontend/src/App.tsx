@@ -9,9 +9,14 @@ import '@glideapps/glide-data-grid/dist/index.css'
 import { fetchObjects, type ListResponse, type ObjectMeta } from './api'
 import ObjectsPage from './ObjectsPage'
 import ObjectDetail from './ObjectDetail'
+import OrgPage from './OrgPage'
 import './App.css'
 
-type Page = { kind: 'explorer' } | { kind: 'objects' } | { kind: 'object-detail'; objectId: string }
+type Page =
+  | { kind: 'explorer' }
+  | { kind: 'objects' }
+  | { kind: 'object-detail'; objectId: string }
+  | { kind: 'org' }
 
 function App() {
   const [page, setPage] = useState<Page>({ kind: 'explorer' })
@@ -33,6 +38,12 @@ function App() {
           >
             Objects
           </button>
+          <button
+            className={page.kind === 'org' ? 'tab active' : 'tab'}
+            onClick={() => setPage({ kind: 'org' })}
+          >
+            Org Chart
+          </button>
         </nav>
       </header>
 
@@ -48,6 +59,7 @@ function App() {
           onBack={() => setPage({ kind: 'objects' })}
         />
       )}
+      {page.kind === 'org' && <OrgPage />}
     </div>
   )
 }

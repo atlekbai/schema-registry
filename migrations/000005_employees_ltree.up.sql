@@ -9,7 +9,7 @@ $$;
 ALTER TABLE core.employees ADD COLUMN "manager_path" ltree NOT NULL DEFAULT ''::ltree;
 ALTER TABLE core.employees ADD CONSTRAINT chk_employees_manager_path
 	CHECK (nlevel("manager_path") >= 1);
-CREATE INDEX idx_employees_manager_path ON core.employees USING SPGIST ("manager_path");
+CREATE INDEX idx_employees_manager_path ON core.employees USING GIST ("manager_path");
 
 -- BEFORE: compute this row's path from its manager's path.
 CREATE OR REPLACE FUNCTION core.trg_employees_manager_path_before()

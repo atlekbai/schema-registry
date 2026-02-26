@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	sq "github.com/Masterminds/squirrel"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
@@ -71,13 +72,14 @@ func DecodeCursor(raw string) (*Cursor, error) {
 }
 
 type QueryParams struct {
-	Select      []string
-	Expand      []string
-	ExpandPlans []ExpandPlan
-	Filters     []Filter
-	Order       *OrderClause
-	Limit       int
-	Cursor      *Cursor
+	Select          []string
+	Expand          []string
+	ExpandPlans     []ExpandPlan
+	Filters         []Filter
+	Order           *OrderClause
+	Limit           int
+	Cursor          *Cursor
+	ExtraConditions []sq.Sqlizer // additional WHERE clauses (e.g. ltree)
 }
 
 // ParseParams builds QueryParams from a transport-agnostic ParamsInput.

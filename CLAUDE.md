@@ -30,11 +30,13 @@ cd frontend && bun run build                # tsc + vite build
 
 **Schema Cache** (`internal/schema/cache.go`): In-memory map of `ObjectDef`/`FieldDef` loaded at startup from `metadata.objects` JOIN `metadata.fields`. Used by query layer to validate params and build SQL. Reloaded (best-effort) after metadata mutations.
 
-**Query Builder** (`internal/query/`): `NewBuilder(obj)` dispatches to `StandardBuilder` (real `core.*` tables) or `CustomBuilder` (JSONB `metadata.records`). Uses Squirrel with `sq.Dollar` placeholders. Expansion via LEFT JOIN LATERAL. Keyset pagination with base64url cursor.
+**Query Builder** (`internal/query/`): `NewBuilder(obj)` dispatches to `StandardBuilder` (real `core.*` tables) or `CustomBuilder` (JSONB `metadata.records`). Uses Squirrel with `sq.Dollar` placeholders. Expansion via LEFT JOIN LATERAL. Keyset pagination with base64url cursor. `QueryParams.ExtraConditions` allows injecting raw `sq.Sqlizer` WHERE clauses (used by OrgService for ltree filters).
 
-**Database**: PostgreSQL 16 with `pg_uuidv7` extension (NOT `uuidv7`). Two schemas: `metadata` (object/field registry + JSONB records) and `core` (real application tables). Migrations are plain SQL files run via `psql` pipe in Taskfile.
+**Org Chart** (`internal/service/org.go`, `internal/query/org.go`): `OrgService` provides 4 RPCs for org-tree queries using ltree on `core.employees.manager_path`. Condition builders in `query/org.go` (`ChainUp`, `ChainDown`, `Subtree`, `SameField`) produce ltree WHERE clauses injected via `ExtraConditions`. Routes: `/api/org/chain/{id}`, `/api/org/peers/{id}`, `/api/org/reports/{id}`, `/api/org/reports-to/{id}/{target_id}`.
 
-**Frontend**: React 19 + Vite + TypeScript. Plain `fetch` calls (no codegen from proto). Vanguard returns camelCase JSON. `@glideapps/glide-data-grid` for data explorer. State-based routing via discriminated union, no router library.
+**Database**: PostgreSQL 16 with `pg_uuidv7` and `ltree` extensions. Two schemas: `metadata` (object/field registry + JSONB records) and `core` (real application tables). `core.employees.manager_path` is a materialized ltree path maintained by BEFORE/AFTER triggers on `manager_id`. SP-GiST index for `<@`/`@>` queries. Migrations are plain SQL files run via `psql` pipe in Taskfile.
+
+**Frontend**: React 19 + Vite + TypeScript. Plain `fetch` calls (no codegen from proto). Vanguard returns camelCase JSON. `@glideapps/glide-data-grid` for data explorer. State-based routing via discriminated union, no router library. Org Chart page (`OrgPage.tsx`) exposes all 4 org operations with tabbed UI.
 
 ## Key Conventions
 

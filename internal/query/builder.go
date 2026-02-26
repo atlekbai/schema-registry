@@ -62,6 +62,9 @@ func (b *QueryBuilder) BuildList(params *QueryParams) (string, []any, error) {
 	for _, cond := range buildFilters(b.obj, params) {
 		qb = qb.Where(cond)
 	}
+	for _, cond := range params.ExtraConditions {
+		qb = qb.Where(cond)
+	}
 	for _, clause := range buildOrderBy(b.obj, params) {
 		qb = qb.OrderBy(clause)
 	}
@@ -101,6 +104,9 @@ func (b *QueryBuilder) BuildCount(params *QueryParams) (string, []any, error) {
 	for _, cond := range buildFilters(b.obj, params) {
 		qb = qb.Where(cond)
 	}
+	for _, cond := range params.ExtraConditions {
+		qb = qb.Where(cond)
+	}
 	return qb.ToSql()
 }
 
@@ -111,6 +117,9 @@ func (b *QueryBuilder) BuildEstimate(params *QueryParams) (string, []any, error)
 		qb = qb.Where(baseWhere)
 	}
 	for _, cond := range buildFilters(b.obj, params) {
+		qb = qb.Where(cond)
+	}
+	for _, cond := range params.ExtraConditions {
 		qb = qb.Where(cond)
 	}
 	return qb.ToSql()

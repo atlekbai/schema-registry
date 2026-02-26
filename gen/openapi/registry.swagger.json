@@ -9,6 +9,9 @@
       "name": "MetadataService"
     },
     {
+      "name": "OrgService"
+    },
+    {
       "name": "RegistryService"
     }
   ],
@@ -340,6 +343,39 @@
         ],
         "tags": [
           "MetadataService"
+        ]
+      }
+    },
+    "/api/org/query": {
+      "post": {
+        "summary": "Query parses a DSL expression and executes the corresponding org-chart operation.\nSupported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)",
+        "operationId": "OrgService_Query",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1QueryResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/v1QueryRequest"
+            }
+          }
+        ],
+        "tags": [
+          "OrgService"
         ]
       }
     },
@@ -784,6 +820,55 @@
         },
         "updatedAt": {
           "type": "string"
+        }
+      }
+    },
+    "v1QueryRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "DSL expression, e.g. \"CHAIN(uuid, -1)\" or \"REPORTSTO(uuid, uuid)\"."
+        },
+        "select": {
+          "type": "string",
+          "description": "Optional list parameters (ignored by REPORTSTO)."
+        },
+        "expand": {
+          "type": "string"
+        },
+        "order": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "cursor": {
+          "type": "string"
+        }
+      }
+    },
+    "v1QueryResponse": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "List results (CHAIN, PEERS, REPORTS)."
+        },
+        "totalCount": {
+          "type": "string",
+          "format": "int64"
+        },
+        "nextCursor": {
+          "type": "string"
+        },
+        "reportsTo": {
+          "type": "boolean",
+          "description": "Boolean result (REPORTSTO)."
         }
       }
     },

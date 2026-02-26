@@ -157,3 +157,25 @@ export async function deleteMetaField(objectId: string, fieldId: string): Promis
     await fetch(`/api/meta/objects/${objectId}/fields/${fieldId}`, { method: 'DELETE' }),
   )
 }
+
+// ── Org API ───────────────────────────────────────────────────────
+
+export interface OrgQueryResponse {
+  results?: Record<string, unknown>[]
+  totalCount?: number
+  nextCursor?: string | null
+  reportsTo?: boolean
+}
+
+export async function orgQuery(
+  query: string,
+  opts: { select?: string; expand?: string; limit?: number; cursor?: string } = {},
+): Promise<OrgQueryResponse> {
+  return jsonOrThrow<OrgQueryResponse>(
+    await fetch('/api/org/query', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, ...opts }),
+    }),
+  )
+}
