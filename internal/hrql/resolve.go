@@ -4,59 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
-	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
 // Resolver abstracts DB lookups needed during HRQL compilation.
-// This separates "translate AST to SQL" from "fetch runtime data",
-// and enables unit testing the compiler without a database.
+// Implementations resolve domain-level identifiers (API names),
+// not storage-level details (column names, SQL).
 type Resolver interface {
 	LookupPath(ctx context.Context, id string) (string, error)
-	LookupField(ctx context.Context, id, column string) (string, error)
-}
-
-// PgResolver implements Resolver using a pgx connection pool.
-type PgResolver struct {
-	pool *pgxpool.Pool
-}
-
-// NewPgResolver creates a Resolver backed by a PostgreSQL connection pool.
-func NewPgResolver(pool *pgxpool.Pool) *PgResolver {
-	return &PgResolver{pool: pool}
-}
-
-func (r *PgResolver) LookupPath(ctx context.Context, id string) (string, error) {
-	var path string
-	err := r.pool.QueryRow(ctx,
-		`SELECT "manager_path"::text FROM "core"."employees" WHERE "id" = $1`, id,
-	).Scan(&path)
-	if err == pgx.ErrNoRows {
-		return "", fmt.Errorf("employee %s not found", id)
-	}
-	if err != nil {
-		return "", fmt.Errorf("lookup path: %w", err)
-	}
-	return path, nil
-}
-
-func (r *PgResolver) LookupField(ctx context.Context, id, column string) (string, error) {
-	var value *string
-	q := fmt.Sprintf(`SELECT %s::text FROM "core"."employees" WHERE "id" = $1`, schema.QuoteIdent(column))
-	err := r.pool.QueryRow(ctx, q, id).Scan(&value)
-	if err == pgx.ErrNoRows {
-		return "", fmt.Errorf("employee %s not found", id)
-	}
-	if err != nil {
-		return "", fmt.Errorf("lookup field: %w", err)
-	}
-	if value == nil {
-		return "", nil
-	}
-	return *value, nil
+	LookupFieldValue(ctx context.Context, id, fieldAPIName string) (string, error)
 }
 
 // --- Argument resolution helpers ---
@@ -70,7 +25,6 @@ func (c *Compiler) resolveEmployeeArg(ctx context.Context, arg Node) (string, er
 		}
 		return c.selfID, nil
 	case *DotExpr:
-		// `.` in function args means the current pipe item — only valid in correlated contexts.
 		return "", fmt.Errorf("'.' cannot be resolved to an employee ID outside of where subqueries")
 	case *PipeExpr:
 		// self.manager → need to resolve.
@@ -83,7 +37,6 @@ func (c *Compiler) resolveEmployeeArg(ctx context.Context, arg Node) (string, er
 		}
 		return "", fmt.Errorf("cannot resolve complex pipe expression to employee ID")
 	case *IdentExpr:
-		// Could be a UUID passed directly (frontend-resolved).
 		return a.Name, nil
 	case *Literal:
 		if a.Kind == TokString {
@@ -101,26 +54,17 @@ func (c *Compiler) resolveSelfLookup(ctx context.Context, fa *FieldAccess) (stri
 		return "", fmt.Errorf("empty field access")
 	}
 	fieldName := fa.Chain[0]
-	fd, ok := c.empObj.FieldsByAPIName[fieldName]
-	if !ok {
+	if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
 		return "", fmt.Errorf("unknown field %q", fieldName)
 	}
 
-	var column string
-	if fd.StorageColumn != nil {
-		column = *fd.StorageColumn
-	} else {
-		return "", fmt.Errorf("field %q has no storage column", fieldName)
-	}
-
-	value, err := c.resolver.LookupField(ctx, c.selfID, column)
+	value, err := c.resolver.LookupFieldValue(ctx, c.selfID, fieldName)
 	if err != nil {
 		return "", err
 	}
 
 	// If there are more chain segments (self.manager.manager), resolve recursively.
 	if len(fa.Chain) > 1 && value != "" {
-		// The value is a FK UUID — look up the next field on that record.
 		return c.resolveChainedLookup(ctx, value, fa.Chain[1:])
 	}
 
@@ -130,18 +74,11 @@ func (c *Compiler) resolveSelfLookup(ctx context.Context, fa *FieldAccess) (stri
 // resolveChainedLookup resolves a chain of LOOKUP fields from a starting ID.
 func (c *Compiler) resolveChainedLookup(ctx context.Context, currentID string, fields []string) (string, error) {
 	for _, fieldName := range fields {
-		fd, ok := c.empObj.FieldsByAPIName[fieldName]
-		if !ok {
+		if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
 			return "", fmt.Errorf("unknown field %q", fieldName)
 		}
-		var column string
-		if fd.StorageColumn != nil {
-			column = *fd.StorageColumn
-		} else {
-			return "", fmt.Errorf("field %q has no storage column", fieldName)
-		}
 
-		value, err := c.resolver.LookupField(ctx, currentID, column)
+		value, err := c.resolver.LookupFieldValue(ctx, currentID, fieldName)
 		if err != nil {
 			return "", err
 		}

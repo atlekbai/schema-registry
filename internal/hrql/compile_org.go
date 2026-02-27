@@ -3,14 +3,10 @@ package hrql
 import (
 	"context"
 	"fmt"
-
-	sq "github.com/Masterminds/squirrel"
-
-	"github.com/atlekbai/schema_registry/internal/query"
 )
 
 // compileFuncCall handles org functions at source position.
-func (c *Compiler) compileFuncCall(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compileFuncCall(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	switch fn.Name {
 	case "chain":
 		return c.compileChain(ctx, fn)
@@ -27,7 +23,7 @@ func (c *Compiler) compileFuncCall(ctx context.Context, fn *FuncCall) (*Result, 
 	}
 }
 
-func (c *Compiler) compileChain(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compileChain(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	if len(fn.Args) < 1 || len(fn.Args) > 2 {
 		return nil, fmt.Errorf("chain() requires 1-2 arguments: chain(employee [, depth])")
 	}
@@ -50,24 +46,22 @@ func (c *Compiler) compileChain(ctx context.Context, fn *FuncCall) (*Result, err
 		return nil, err
 	}
 
-	var conds []sq.Sqlizer
+	var cond Condition
 	if depth == 0 {
-		conds = append(conds, ChainAll(path))
+		cond = OrgChainAll{Path: path}
 	} else {
 		nlevel := nlevelFromPath(path)
 		if depth >= nlevel {
-			// No ancestors that far up — return empty.
-			col := fmt.Sprintf(`%s."id"`, query.QI(query.Alias()))
-			conds = append(conds, sq.Eq{col: nil})
+			cond = NullFilter{}
 		} else {
-			conds = append(conds, ChainUp(path, depth))
+			cond = OrgChainUp{Path: path, Steps: depth}
 		}
 	}
 
-	return &Result{Kind: KindList, Conditions: conds}, nil
+	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
 }
 
-func (c *Compiler) compileReports(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compileReports(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	if len(fn.Args) < 1 || len(fn.Args) > 2 {
 		return nil, fmt.Errorf("reports() requires 1-2 arguments: reports(employee [, depth])")
 	}
@@ -90,17 +84,17 @@ func (c *Compiler) compileReports(ctx context.Context, fn *FuncCall) (*Result, e
 		return nil, err
 	}
 
-	var conds []sq.Sqlizer
+	var cond Condition
 	if depth == 0 {
-		conds = append(conds, Subtree(path))
+		cond = OrgSubtree{Path: path}
 	} else {
-		conds = append(conds, ChainDown(path, depth))
+		cond = OrgChainDown{Path: path, Depth: depth}
 	}
 
-	return &Result{Kind: KindList, Conditions: conds}, nil
+	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
 }
 
-func (c *Compiler) compilePeers(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compilePeers(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	if len(fn.Args) != 1 {
 		return nil, fmt.Errorf("peers() requires 1 argument: peers(employee)")
 	}
@@ -110,23 +104,21 @@ func (c *Compiler) compilePeers(ctx context.Context, fn *FuncCall) (*Result, err
 		return nil, fmt.Errorf("peers arg 1: %w", err)
 	}
 
-	managerID, err := c.resolver.LookupField(ctx, empID, "manager_id")
+	managerID, err := c.resolver.LookupFieldValue(ctx, empID, "manager")
 	if err != nil {
 		return nil, err
 	}
 	if managerID == "" {
-		// Root node — no peers.
-		col := fmt.Sprintf(`%s."id"`, query.QI(query.Alias()))
-		return &Result{Kind: KindList, Conditions: []sq.Sqlizer{sq.Eq{col: nil}}}, nil
+		return &Plan{Kind: PlanList, Conditions: []Condition{NullFilter{}}}, nil
 	}
 
-	return &Result{
-		Kind:       KindList,
-		Conditions: []sq.Sqlizer{SameField("manager_id", managerID, empID)},
+	return &Plan{
+		Kind:       PlanList,
+		Conditions: []Condition{SameFieldCond{Field: "manager", Value: managerID, ExcludeID: empID}},
 	}, nil
 }
 
-func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	if len(fn.Args) != 2 {
 		return nil, fmt.Errorf("colleagues() requires 2 arguments: colleagues(employee, .field)")
 	}
@@ -136,7 +128,6 @@ func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Result
 		return nil, fmt.Errorf("colleagues arg 1: %w", err)
 	}
 
-	// Second arg must be a field access like .department
 	fa, ok := fn.Args[1].(*FieldAccess)
 	if !ok {
 		return nil, fmt.Errorf("colleagues arg 2: expected field reference (.field), got %T", fn.Args[1])
@@ -146,35 +137,25 @@ func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Result
 	}
 
 	fieldName := fa.Chain[0]
-	fd, ok := c.empObj.FieldsByAPIName[fieldName]
-	if !ok {
+	if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
 		return nil, fmt.Errorf("colleagues arg 2: unknown field %q", fieldName)
 	}
 
-	// Resolve the storage column for the field.
-	var column string
-	if fd.StorageColumn != nil {
-		column = *fd.StorageColumn
-	} else {
-		return nil, fmt.Errorf("colleagues arg 2: field %q has no storage column", fieldName)
-	}
-
-	value, err := c.resolver.LookupField(ctx, empID, column)
+	value, err := c.resolver.LookupFieldValue(ctx, empID, fieldName)
 	if err != nil {
 		return nil, err
 	}
 	if value == "" {
-		col := fmt.Sprintf(`%s."id"`, query.QI(query.Alias()))
-		return &Result{Kind: KindList, Conditions: []sq.Sqlizer{sq.Eq{col: nil}}}, nil
+		return &Plan{Kind: PlanList, Conditions: []Condition{NullFilter{}}}, nil
 	}
 
-	return &Result{
-		Kind:       KindList,
-		Conditions: []sq.Sqlizer{SameField(column, value, empID)},
+	return &Plan{
+		Kind:       PlanList,
+		Conditions: []Condition{SameFieldCond{Field: fieldName, Value: value, ExcludeID: empID}},
 	}, nil
 }
 
-func (c *Compiler) compileReportsTo(ctx context.Context, fn *FuncCall) (*Result, error) {
+func (c *Compiler) compileReportsTo(ctx context.Context, fn *FuncCall) (*Plan, error) {
 	if len(fn.Args) != 2 {
 		return nil, fmt.Errorf("reports_to() requires 2 arguments: reports_to(employee, target)")
 	}
@@ -199,5 +180,5 @@ func (c *Compiler) compileReportsTo(ctx context.Context, fn *FuncCall) (*Result,
 	}
 
 	result := isDescendant(empPath, tgtPath)
-	return &Result{Kind: KindBoolean, BoolResult: &result}, nil
+	return &Plan{Kind: PlanBoolean, BoolResult: &result}, nil
 }

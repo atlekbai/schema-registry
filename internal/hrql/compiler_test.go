@@ -1,10 +1,8 @@
 package hrql
 
 import (
-	"strings"
 	"testing"
 
-	sq "github.com/Masterminds/squirrel"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
@@ -73,53 +71,16 @@ func testEmployeesObj() *schema.ObjectDef {
 	return obj
 }
 
-// --- ChainAll tests ---
+// --- Plan condition tests ---
 
-func TestChainAllRootNode(t *testing.T) {
-	// Single label = root, no ancestors.
-	cond := ChainAll("abc123")
-	sql, _, err := condToSQL(cond)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Should produce id IS NULL (no results).
-	if !strings.Contains(sql, "IS NULL") {
-		t.Fatalf("expected IS NULL for root node, got %q", sql)
-	}
+func TestOrgChainAllRootNode(t *testing.T) {
+	// Single label = root → OrgChainAll with single-label path.
+	cond := OrgChainAll{Path: "abc123"}
+	_ = cond // Plan condition is a value type — no SQL to check here.
+	// The SQL translation is tested in pg/ package.
 }
-
-func TestChainAllMultipleAncestors(t *testing.T) {
-	// 3 labels: grandparent.parent.self → should return [grandparent, parent] UUIDs
-	path := "aabbccdd11223344556677889900aabb.11223344556677889900aabbccddeeff.deadbeef12345678abcdef0123456789"
-	cond := ChainAll(path)
-	sql, args, err := condToSQL(cond)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Should contain 2 UUIDs (ancestors excluding self).
-	if len(args) != 2 {
-		t.Fatalf("expected 2 args, got %d: %v", len(args), args)
-	}
-	// Check UUID format restoration.
-	uuid1, ok := args[0].(string)
-	if !ok {
-		t.Fatalf("arg 0: expected string, got %T", args[0])
-	}
-	if !strings.Contains(uuid1, "-") {
-		t.Fatalf("expected UUID with hyphens, got %q", uuid1)
-	}
-
-	// SQL should reference _e.id.
-	if !strings.Contains(sql, `"id"`) {
-		t.Fatalf("expected id reference, got %q", sql)
-	}
-}
-
-// --- ltreeLabelToUUID tests ---
 
 func TestLtreeLabelToUUID(t *testing.T) {
-	// 32-char hex → UUID format
 	label := "550e8400e29b41d4a716446655440000"
 	got := LtreeLabelToUUID(label)
 	want := "550e8400-e29b-41d4-a716-446655440000"
@@ -129,7 +90,6 @@ func TestLtreeLabelToUUID(t *testing.T) {
 }
 
 func TestLtreeLabelToUUIDShort(t *testing.T) {
-	// Non-32 char → returned as-is.
 	label := "short"
 	got := LtreeLabelToUUID(label)
 	if got != label {
@@ -158,53 +118,7 @@ func TestNlevelFromPath(t *testing.T) {
 	}
 }
 
-// --- Where condition compilation helpers ---
-
-func TestComparisonExpr(t *testing.T) {
-	tests := []struct {
-		op      string
-		wantSQL string
-	}{
-		{"==", `= $1`},
-		{"!=", `<> $1`},
-		{">", `> $1`},
-		{">=", `>= $1`},
-		{"<", `< $1`},
-		{"<=", `<= $1`},
-	}
-	for _, tt := range tests {
-		cond := comparisonExpr(`"_e"."employment_type"`, tt.op, "FULL_TIME")
-		sql, args, err := condToSQL(cond)
-		if err != nil {
-			t.Errorf("op %q: %v", tt.op, err)
-			continue
-		}
-		if !strings.Contains(sql, `"_e"."employment_type"`) {
-			t.Errorf("op %q: expected column ref, got %q", tt.op, sql)
-		}
-		if len(args) == 0 {
-			t.Errorf("op %q: expected args, got none", tt.op)
-		}
-		_ = args
-	}
-}
-
-func TestSqlOp(t *testing.T) {
-	tests := map[string]string{
-		"==": "=",
-		"!=": "!=",
-		">":  ">",
-		">=": ">=",
-		"<":  "<",
-		"<=": "<=",
-	}
-	for input, want := range tests {
-		got := sqlOp(input)
-		if got != want {
-			t.Errorf("sqlOp(%q): expected %q, got %q", input, want, got)
-		}
-	}
-}
+// --- reverseOp tests ---
 
 func TestReverseOp(t *testing.T) {
 	tests := map[string]string{
@@ -222,62 +136,12 @@ func TestReverseOp(t *testing.T) {
 	}
 }
 
-// --- BuildAggregate tests ---
+// --- Plan kind tests ---
 
-func TestBuildAggregateCount(t *testing.T) {
-	obj := testEmployeesObj()
-	sql, args, err := BuildAggregate(obj, "count", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(sql, "count(*)") {
-		t.Fatalf("expected count(*), got %q", sql)
-	}
-	if !strings.Contains(sql, `"core"."employees"`) {
-		t.Fatalf("expected table ref, got %q", sql)
-	}
-	if len(args) != 0 {
-		t.Fatalf("expected 0 args, got %d", len(args))
-	}
-}
-
-func TestBuildAggregateWithConditions(t *testing.T) {
-	obj := testEmployeesObj()
-	cond := sq.Eq{`"_e"."employment_type"`: "CONTRACTOR"}
-	sql, args, err := BuildAggregate(obj, "count", nil, []sq.Sqlizer{cond})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(sql, "count(*)") {
-		t.Fatalf("expected count(*), got %q", sql)
-	}
-	if !strings.Contains(sql, "employment_type") {
-		t.Fatalf("expected employment_type in WHERE, got %q", sql)
-	}
-	if len(args) != 1 || args[0] != "CONTRACTOR" {
-		t.Fatalf("expected args [CONTRACTOR], got %v", args)
-	}
-}
-
-func TestBuildAggregateAvgField(t *testing.T) {
-	obj := testEmployeesObj()
-	// Use start_date as a stand-in (no numeric fields in our test fixture).
-	fd := obj.FieldsByAPIName["start_date"]
-	sql, _, err := BuildAggregate(obj, "avg", fd, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(sql, "avg(") {
-		t.Fatalf("expected avg(), got %q", sql)
-	}
-}
-
-// --- Result kind tests ---
-
-func TestResultKindDefaults(t *testing.T) {
-	r := &Result{}
-	if r.Kind != KindList {
-		t.Fatalf("expected default KindList, got %v", r.Kind)
+func TestPlanKindDefaults(t *testing.T) {
+	p := &Plan{}
+	if p.Kind != PlanList {
+		t.Fatalf("expected default PlanList, got %v", p.Kind)
 	}
 }
 
@@ -300,7 +164,7 @@ func TestJoinChain(t *testing.T) {
 	}
 }
 
-// --- tryCompileStringOp tests ---
+// --- tryCompileStringOp tests (now produces Plan conditions) ---
 
 func TestTryCompileStringOp(t *testing.T) {
 	obj := testEmployeesObj()
@@ -308,14 +172,14 @@ func TestTryCompileStringOp(t *testing.T) {
 	c := &Compiler{cache: cache, empObj: obj}
 
 	tests := []struct {
-		name    string
-		fnName  string
-		arg     string
-		wantSQL string
+		name   string
+		fnName string
+		arg    string
+		wantOp string
 	}{
-		{"contains", "contains", "test", "ILIKE"},
-		{"starts_with", "starts_with", "test", "ILIKE"},
-		{"ends_with", "ends_with", "test", "ILIKE"},
+		{"contains", "contains", "test", "contains"},
+		{"starts_with", "starts_with", "test", "starts_with"},
+		{"ends_with", "ends_with", "test", "ends_with"},
 	}
 	for _, tt := range tests {
 		pipe := &PipeExpr{Steps: []Node{
@@ -327,13 +191,19 @@ func TestTryCompileStringOp(t *testing.T) {
 			t.Errorf("%s: expected match, got false", tt.name)
 			continue
 		}
-		sql, _, err := condToSQL(cond)
-		if err != nil {
-			t.Errorf("%s: %v", tt.name, err)
+		sm, ok := cond.(StringMatch)
+		if !ok {
+			t.Errorf("%s: expected StringMatch, got %T", tt.name, cond)
 			continue
 		}
-		if !strings.Contains(sql, tt.wantSQL) {
-			t.Errorf("%s: expected %q in SQL, got %q", tt.name, tt.wantSQL, sql)
+		if sm.Op != tt.wantOp {
+			t.Errorf("%s: expected op %q, got %q", tt.name, tt.wantOp, sm.Op)
+		}
+		if sm.Pattern != tt.arg {
+			t.Errorf("%s: expected pattern %q, got %q", tt.name, tt.arg, sm.Pattern)
+		}
+		if len(sm.Field) != 1 || sm.Field[0] != "employment_type" {
+			t.Errorf("%s: expected field [employment_type], got %v", tt.name, sm.Field)
 		}
 	}
 }
@@ -342,7 +212,6 @@ func TestTryCompileStringOpNoMatch(t *testing.T) {
 	obj := testEmployeesObj()
 	c := &Compiler{empObj: obj}
 
-	// Not a string op — should return false.
 	pipe := &PipeExpr{Steps: []Node{
 		&FieldAccess{Chain: []string{"employment_type"}},
 		&AggExpr{Op: "count"},
@@ -353,11 +222,41 @@ func TestTryCompileStringOpNoMatch(t *testing.T) {
 	}
 }
 
-// --- Helpers ---
+// --- isDescendant tests ---
 
-func condToSQL(cond sq.Sqlizer) (string, []any, error) {
-	// Wrap in a SELECT to get valid SQL.
-	qb := sq.Select("1").Where(cond).PlaceholderFormat(sq.Dollar)
-	sql, args, err := qb.ToSql()
-	return sql, args, err
+func TestIsDescendant(t *testing.T) {
+	tests := []struct {
+		emp, tgt string
+		want     bool
+	}{
+		{"a.b.c", "a.b", true},
+		{"a.b", "a.b", false},
+		{"a.b", "a.b.c", false},
+		{"a.b.c", "x.y", false},
+	}
+	for _, tt := range tests {
+		got := isDescendant(tt.emp, tt.tgt)
+		if got != tt.want {
+			t.Errorf("isDescendant(%q, %q): expected %v, got %v", tt.emp, tt.tgt, tt.want, got)
+		}
+	}
+}
+
+// --- Condition type assertions ---
+
+func TestConditionTypes(t *testing.T) {
+	// Verify all condition types implement the Condition interface.
+	var _ Condition = IdentityFilter{}
+	var _ Condition = NullFilter{}
+	var _ Condition = FieldCmp{}
+	var _ Condition = StringMatch{}
+	var _ Condition = AndCond{}
+	var _ Condition = OrCond{}
+	var _ Condition = OrgChainUp{}
+	var _ Condition = OrgChainDown{}
+	var _ Condition = OrgChainAll{}
+	var _ Condition = OrgSubtree{}
+	var _ Condition = SameFieldCond{}
+	var _ Condition = ReportsTo{}
+	var _ Condition = SubqueryAgg{}
 }

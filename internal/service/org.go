@@ -14,6 +14,7 @@ import (
 	registryv1 "github.com/atlekbai/schema_registry/gen/registry/v1"
 	"github.com/atlekbai/schema_registry/gen/registry/v1/registryv1connect"
 	"github.com/atlekbai/schema_registry/internal/hrql"
+	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
 	"github.com/atlekbai/schema_registry/internal/query"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
@@ -40,50 +41,57 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// Compile AST to SQL conditions / scalar / boolean.
-	compiler := hrql.NewCompiler(s.cache, hrql.NewPgResolver(s.pool), msg.SelfId)
-	result, err := compiler.Compile(ctx, ast)
+	// Compile AST to a storage-agnostic Plan.
+	resolver := hrqlpg.NewResolver(s.pool, s.cache)
+	compiler := hrql.NewCompiler(s.cache, resolver, msg.SelfId)
+	plan, err := compiler.Compile(ctx, ast)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	switch result.Kind {
-	case hrql.KindList:
-		return s.runHRQLList(ctx, result, msg)
-	case hrql.KindScalar:
-		return s.runScalar(ctx, result)
-	case hrql.KindBoolean:
-		return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: result.BoolResult}), nil
+	switch plan.Kind {
+	case hrql.PlanList:
+		return s.runHRQLList(ctx, plan, msg)
+	case hrql.PlanScalar:
+		return s.runScalar(ctx, plan)
+	case hrql.PlanBoolean:
+		return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: plan.BoolResult}), nil
 	default:
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unknown result kind %v", result.Kind))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unknown plan kind %v", plan.Kind))
 	}
 }
 
-// runHRQLList executes a list-producing HRQL result.
-func (s *OrgService) runHRQLList(ctx context.Context, result *hrql.Result, msg *registryv1.QueryRequest) (*connect.Response[registryv1.QueryResponse], error) {
+// runHRQLList executes a list-producing HRQL plan.
+func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *registryv1.QueryRequest) (*connect.Response[registryv1.QueryResponse], error) {
 	obj, err := s.employeesObj()
 	if err != nil {
 		return nil, err
 	}
 
+	// Translate plan to SQL.
+	sqlResult, err := hrqlpg.Translate(plan, obj, s.cache)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("translate plan: %w", err))
+	}
+
 	input := listInputFromMsg(msg)
 
-	// Apply compiler-determined ordering/limit overrides.
-	if result.OrderBy != nil {
-		input.Order = result.OrderBy.FieldAPIName
-		if result.OrderBy.Desc {
+	// Apply plan-determined ordering/limit overrides.
+	if sqlResult.OrderBy != nil {
+		input.Order = sqlResult.OrderBy.FieldAPIName
+		if sqlResult.OrderBy.Desc {
 			input.Order += ".desc"
 		}
 	}
-	if result.Limit > 0 && input.Limit == 0 {
-		input.Limit = int32(result.Limit)
+	if sqlResult.Limit > 0 && input.Limit == 0 {
+		input.Limit = int32(sqlResult.Limit)
 	}
 
 	params, err := query.ParseParams(obj, input)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	params.ExtraConditions = result.Conditions
+	params.ExtraConditions = sqlResult.Conditions
 	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
 
 	builder := query.NewBuilder(obj)
@@ -136,20 +144,20 @@ func (s *OrgService) runHRQLList(ctx context.Context, result *hrql.Result, msg *
 	return connect.NewResponse(resp), nil
 }
 
-// runScalar executes a scalar-producing HRQL result (aggregation).
-func (s *OrgService) runScalar(ctx context.Context, result *hrql.Result) (*connect.Response[registryv1.QueryResponse], error) {
+// runScalar executes a scalar-producing HRQL plan (aggregation).
+func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.Response[registryv1.QueryResponse], error) {
 	obj, err := s.employeesObj()
 	if err != nil {
 		return nil, err
 	}
 
-	sqlStr, args, err := hrql.BuildAggregate(obj, result.AggFunc, result.AggField, result.Conditions)
+	sqlResult, err := hrqlpg.Translate(plan, obj, s.cache)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("build aggregate: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("translate plan: %w", err))
 	}
 
 	var rawResult *string
-	if err := s.pool.QueryRow(ctx, sqlStr, args...).Scan(&rawResult); err != nil {
+	if err := s.pool.QueryRow(ctx, sqlResult.AggSQL, sqlResult.AggArgs...).Scan(&rawResult); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("aggregate query: %w", err))
 	}
 
@@ -157,7 +165,6 @@ func (s *OrgService) runScalar(ctx context.Context, result *hrql.Result) (*conne
 	if rawResult != nil {
 		scalar, err = strconv.ParseFloat(*rawResult, 64)
 		if err != nil {
-			// Might be an integer count — try that.
 			n, err2 := strconv.ParseInt(*rawResult, 10, 64)
 			if err2 != nil {
 				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("parse aggregate result %q: %w", *rawResult, err))
