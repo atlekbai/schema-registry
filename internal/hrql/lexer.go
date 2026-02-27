@@ -7,8 +7,8 @@ import (
 
 // Lexer tokenizes an HRQL input string.
 type Lexer struct {
-	input []rune
-	pos   int
+	input  []rune
+	pos    int
 	peeked *Token
 }
 

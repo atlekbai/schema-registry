@@ -3,15 +3,7 @@ package query
 import (
 	"fmt"
 	"strings"
-
-	"github.com/atlekbai/schema_registry/internal/schema"
 )
-
-// qi is shorthand for schema.QuoteIdent.
-func qi(name string) string { return schema.QuoteIdent(name) }
-
-// quoteLit wraps s in single quotes for use as a SQL string literal.
-func quoteLit(s string) string { return "'" + s + "'" }
 
 // expandAlias returns the join alias for an expand field, e.g. "_xp_organization".
 func expandAlias(fieldName string) string { return "_xp_" + fieldName }
@@ -47,9 +39,9 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 
 	// System fields — always included
 	cols = append(cols,
-		fmt.Sprintf(`%s."id"`, qi(inner)),
-		fmt.Sprintf(`%s."created_at"`, qi(inner)),
-		fmt.Sprintf(`%s."updated_at"`, qi(inner)),
+		fmt.Sprintf(`%s."id"`, QI(inner)),
+		fmt.Sprintf(`%s."created_at"`, QI(inner)),
+		fmt.Sprintf(`%s."updated_at"`, QI(inner)),
 	)
 
 	for _, f := range target.Fields {
@@ -59,19 +51,19 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 		if child, ok := childSet[f.APIName]; ok && depth < maxExpandDepth-1 {
 			childName := name + "__" + child.FieldName
 			childAlias := expandAlias(childName)
-			cols = append(cols, fmt.Sprintf(`%s AS %s`, expandExpr(childAlias), qi(f.APIName)))
+			cols = append(cols, fmt.Sprintf(`%s AS %s`, expandExpr(childAlias), QI(f.APIName)))
 
 			childRef := fkRef(inner, child.Field)
 			nj, na := buildLateral(child, childRef, name+"__", depth+1)
 			nestedJoins = append(nestedJoins, nj)
 			args = append(args, na...)
 		} else {
-			cols = append(cols, fmt.Sprintf(`%s AS %s`, selectFieldExpr(inner, &f), qi(f.APIName)))
+			cols = append(cols, fmt.Sprintf(`%s AS %s`, SelectFieldExpr(inner, &f), QI(f.APIName)))
 		}
 	}
 
-	from, baseWhere := tableSource(target, inner)
-	joinCond := fmt.Sprintf(`%s."id" = %s`, qi(inner), outerRef)
+	from, baseWhere := TableSource(target, inner)
+	joinCond := fmt.Sprintf(`%s."id" = %s`, QI(inner), outerRef)
 	if baseWhere != nil {
 		baseSql, baseArgs, _ := baseWhere.ToSql()
 		joinCond = baseSql + " AND " + joinCond
@@ -89,7 +81,7 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 		from,
 		strings.Join(nestedJoins, " "),
 		joinCond,
-		qi(alias))
+		QI(alias))
 
 	return sql, args
 }

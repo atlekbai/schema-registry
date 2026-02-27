@@ -43,16 +43,16 @@ func (b *QueryBuilder) BuildList(params *QueryParams) (string, []any, error) {
 	jsonExpr := buildJsonObject(b.obj, params, expandSet)
 
 	columns := []string{jsonExpr + " AS _row"}
-	columns = append(columns, fmt.Sprintf(`%s."id"::text AS _cursor_id`, qi(qAlias)))
+	columns = append(columns, fmt.Sprintf(`%s."id"::text AS _cursor_id`, QI(qAlias)))
 	if params.Order != nil {
 		fd := b.obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
-			col := filterExpr(qAlias, fd)
+			col := FilterExpr(qAlias, fd)
 			columns = append(columns, fmt.Sprintf(`%s::text AS _cursor_val`, col))
 		}
 	}
 
-	from, baseWhere := tableSource(b.obj, qAlias)
+	from, baseWhere := TableSource(b.obj, qAlias)
 	qb := sq.Select(columns...).From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
@@ -80,10 +80,10 @@ func (b *QueryBuilder) BuildGetByID(id uuid.UUID, params *QueryParams) (string, 
 
 	columns := []string{jsonExpr + " AS _row"}
 
-	from, baseWhere := tableSource(b.obj, qAlias)
+	from, baseWhere := TableSource(b.obj, qAlias)
 	qb := sq.Select(columns...).
 		From(from).
-		Where(sq.Eq{qi(qAlias) + `."id"`: id}).
+		Where(sq.Eq{QI(qAlias) + `."id"`: id}).
 		PlaceholderFormat(sq.Dollar).
 		Limit(1)
 	if baseWhere != nil {
@@ -96,7 +96,7 @@ func (b *QueryBuilder) BuildGetByID(id uuid.UUID, params *QueryParams) (string, 
 }
 
 func (b *QueryBuilder) BuildCount(params *QueryParams) (string, []any, error) {
-	from, baseWhere := tableSource(b.obj, qAlias)
+	from, baseWhere := TableSource(b.obj, qAlias)
 	qb := sq.Select("count(*)").From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
@@ -111,7 +111,7 @@ func (b *QueryBuilder) BuildCount(params *QueryParams) (string, []any, error) {
 }
 
 func (b *QueryBuilder) BuildEstimate(params *QueryParams) (string, []any, error) {
-	from, baseWhere := tableSource(b.obj, qAlias)
+	from, baseWhere := TableSource(b.obj, qAlias)
 	qb := sq.Select("1").From(from).PlaceholderFormat(sq.Dollar)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
@@ -129,9 +129,9 @@ func (b *QueryBuilder) BuildEstimate(params *QueryParams) (string, []any, error)
 func buildJsonObject(obj *schema.ObjectDef, params *QueryParams, expandSet map[string]*ExpandPlan) string {
 	var pairs []string
 	pairs = append(pairs,
-		fmt.Sprintf(`'id', %s."id"`, qi(qAlias)),
-		fmt.Sprintf(`'created_at', %s."created_at"`, qi(qAlias)),
-		fmt.Sprintf(`'updated_at', %s."updated_at"`, qi(qAlias)),
+		fmt.Sprintf(`'id', %s."id"`, QI(qAlias)),
+		fmt.Sprintf(`'created_at', %s."created_at"`, QI(qAlias)),
+		fmt.Sprintf(`'updated_at', %s."updated_at"`, QI(qAlias)),
 	)
 
 	for _, f := range resolveFields(obj, params, expandSet) {
@@ -140,9 +140,9 @@ func buildJsonObject(obj *schema.ObjectDef, params *QueryParams, expandSet map[s
 		}
 		if ep, ok := expandSet[f.APIName]; ok {
 			alias := expandAlias(ep.FieldName)
-			pairs = append(pairs, fmt.Sprintf(`%s, %s`, quoteLit(f.APIName), expandExpr(alias)))
+			pairs = append(pairs, fmt.Sprintf(`%s, %s`, QuoteLit(f.APIName), expandExpr(alias)))
 		} else {
-			pairs = append(pairs, fmt.Sprintf(`%s, %s`, quoteLit(jsonKey(f)), selectFieldExpr(qAlias, f)))
+			pairs = append(pairs, fmt.Sprintf(`%s, %s`, QuoteLit(jsonKey(f)), SelectFieldExpr(qAlias, f)))
 		}
 	}
 
@@ -192,7 +192,7 @@ func buildFilters(obj *schema.ObjectDef, params *QueryParams) []sq.Sqlizer {
 	var conds []sq.Sqlizer
 	for _, f := range params.Filters {
 		if fd := obj.FieldsByAPIName[f.FieldAPIName]; fd != nil {
-			conds = append(conds, filterCondition(filterExpr(qAlias, fd), f))
+			conds = append(conds, filterCondition(FilterExpr(qAlias, fd), f))
 		}
 	}
 	return conds
@@ -206,11 +206,11 @@ func buildOrderBy(obj *schema.ObjectDef, params *QueryParams) []string {
 
 	if params.Order != nil {
 		if fd := obj.FieldsByAPIName[params.Order.FieldAPIName]; fd != nil {
-			clauses = append(clauses, fmt.Sprintf(`%s %s`, filterExpr(qAlias, fd), dir))
+			clauses = append(clauses, fmt.Sprintf(`%s %s`, FilterExpr(qAlias, fd), dir))
 		}
 	}
 
-	clauses = append(clauses, fmt.Sprintf(`%s."id" %s`, qi(qAlias), dir))
+	clauses = append(clauses, fmt.Sprintf(`%s."id" %s`, QI(qAlias), dir))
 	return clauses
 }
 
@@ -225,12 +225,12 @@ func applyCursor(qb sq.SelectBuilder, obj *schema.ObjectDef, params *QueryParams
 	if params.Cursor == nil {
 		return qb
 	}
-	idCol := fmt.Sprintf(`%s."id"`, qi(qAlias))
+	idCol := fmt.Sprintf(`%s."id"`, QI(qAlias))
 
 	if params.Order != nil && params.Cursor.OrderVal != "" {
 		fd := obj.FieldsByAPIName[params.Order.FieldAPIName]
 		if fd != nil {
-			sortCol := filterExpr(qAlias, fd)
+			sortCol := FilterExpr(qAlias, fd)
 			cmp := ">"
 			if params.Order.Desc {
 				cmp = "<"

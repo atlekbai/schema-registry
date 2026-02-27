@@ -41,7 +41,7 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	}
 
 	// Compile AST to SQL conditions / scalar / boolean.
-	compiler := hrql.NewCompiler(s.cache, s.pool, msg.SelfId)
+	compiler := hrql.NewCompiler(s.cache, hrql.NewPgResolver(s.pool), msg.SelfId)
 	result, err := compiler.Compile(ctx, ast)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)

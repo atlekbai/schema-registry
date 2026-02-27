@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/atlekbai/schema_registry/internal/query"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
@@ -78,7 +77,7 @@ func testEmployeesObj() *schema.ObjectDef {
 
 func TestChainAllRootNode(t *testing.T) {
 	// Single label = root, no ancestors.
-	cond := query.ChainAll("abc123")
+	cond := ChainAll("abc123")
 	sql, _, err := condToSQL(cond)
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +91,7 @@ func TestChainAllRootNode(t *testing.T) {
 func TestChainAllMultipleAncestors(t *testing.T) {
 	// 3 labels: grandparent.parent.self → should return [grandparent, parent] UUIDs
 	path := "aabbccdd11223344556677889900aabb.11223344556677889900aabbccddeeff.deadbeef12345678abcdef0123456789"
-	cond := query.ChainAll(path)
+	cond := ChainAll(path)
 	sql, args, err := condToSQL(cond)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +121,7 @@ func TestChainAllMultipleAncestors(t *testing.T) {
 func TestLtreeLabelToUUID(t *testing.T) {
 	// 32-char hex → UUID format
 	label := "550e8400e29b41d4a716446655440000"
-	got := query.LtreeLabelToUUID(label)
+	got := LtreeLabelToUUID(label)
 	want := "550e8400-e29b-41d4-a716-446655440000"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
@@ -132,7 +131,7 @@ func TestLtreeLabelToUUID(t *testing.T) {
 func TestLtreeLabelToUUIDShort(t *testing.T) {
 	// Non-32 char → returned as-is.
 	label := "short"
-	got := query.LtreeLabelToUUID(label)
+	got := LtreeLabelToUUID(label)
 	if got != label {
 		t.Fatalf("expected %q, got %q", label, got)
 	}

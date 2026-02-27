@@ -140,10 +140,7 @@ func ParseParams(obj *schema.ObjectDef, input ParamsInput) (*QueryParams, error)
 
 	// limit
 	if input.Limit > 0 {
-		n := int(input.Limit)
-		if n > MaxLimit {
-			n = MaxLimit
-		}
+		n := min(int(input.Limit), MaxLimit)
 		p.Limit = n
 	}
 
