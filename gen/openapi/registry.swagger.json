@@ -348,7 +348,7 @@
     },
     "/api/org/query": {
       "post": {
-        "summary": "Query parses a DSL expression and executes the corresponding org-chart operation.\nSupported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)",
+        "summary": "Query parses an HRQL expression and executes it against the employee hierarchy.\nExamples: \"reports(self, 1)\", \"employees | where(.employment_type == \\\"CONTRACTOR\\\") | count\"",
         "operationId": "OrgService_Query",
         "responses": {
           "200": {
@@ -828,11 +828,11 @@
       "properties": {
         "query": {
           "type": "string",
-          "description": "DSL expression, e.g. \"CHAIN(uuid, -1)\" or \"REPORTSTO(uuid, uuid)\"."
+          "description": "HRQL expression, e.g. \"reports(self, 1) | where(.employment_type == \\\"FULL_TIME\\\") | count\"."
         },
         "select": {
           "type": "string",
-          "description": "Optional list parameters (ignored by REPORTSTO)."
+          "description": "Optional list parameters (ignored by scalar/boolean results)."
         },
         "expand": {
           "type": "string"
@@ -846,6 +846,10 @@
         },
         "cursor": {
           "type": "string"
+        },
+        "selfId": {
+          "type": "string",
+          "description": "UUID of the employee context (the \"self\" pronoun). Required when query references \"self\"."
         }
       }
     },
@@ -857,7 +861,7 @@
           "items": {
             "type": "object"
           },
-          "description": "List results (CHAIN, PEERS, REPORTS)."
+          "description": "List results (org functions, employees | where)."
         },
         "totalCount": {
           "type": "string",
@@ -868,7 +872,12 @@
         },
         "reportsTo": {
           "type": "boolean",
-          "description": "Boolean result (REPORTSTO)."
+          "description": "Boolean result (reports_to)."
+        },
+        "scalar": {
+          "type": "number",
+          "format": "double",
+          "description": "Scalar result (aggregation output like count, avg, sum, min, max)."
         }
       }
     },

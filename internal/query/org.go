@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 )
@@ -47,4 +48,30 @@ func SameField(column, value, selfID string) sq.Sqlizer {
 		sq.Eq{fmt.Sprintf(`%s.%s`, qi(qAlias), qi(column)): value},
 		ExcludeSelf(selfID),
 	}
+}
+
+// ChainAll returns a condition matching ALL ancestors of the target (full chain to root).
+// It extracts UUID labels from the ltree path, excluding the target itself (last label).
+func ChainAll(path string) sq.Sqlizer {
+	labels := strings.Split(path, ".")
+	if len(labels) <= 1 {
+		// Root node or single label — no ancestors.
+		return sq.Eq{fmt.Sprintf(`%s."id"`, qi(qAlias)): nil}
+	}
+	// Exclude self (last label), convert ltree labels back to UUIDs.
+	ancestors := labels[:len(labels)-1]
+	uuids := make([]string, len(ancestors))
+	for i, label := range ancestors {
+		uuids[i] = LtreeLabelToUUID(label)
+	}
+	col := fmt.Sprintf(`%s."id"`, qi(qAlias))
+	return sq.Eq{col: uuids}
+}
+
+// LtreeLabelToUUID converts a 32-char hex ltree label back to UUID format (8-4-4-4-12).
+func LtreeLabelToUUID(label string) string {
+	if len(label) != 32 {
+		return label
+	}
+	return label[0:8] + "-" + label[8:12] + "-" + label[12:16] + "-" + label[16:20] + "-" + label[20:32]
 }

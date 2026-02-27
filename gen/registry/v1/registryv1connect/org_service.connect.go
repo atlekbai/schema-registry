@@ -39,8 +39,8 @@ const (
 
 // OrgServiceClient is a client for the registry.v1.OrgService service.
 type OrgServiceClient interface {
-	// Query parses a DSL expression and executes the corresponding org-chart operation.
-	// Supported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)
+	// Query parses an HRQL expression and executes it against the employee hierarchy.
+	// Examples: "reports(self, 1)", "employees | where(.employment_type == \"CONTRACTOR\") | count"
 	Query(context.Context, *connect.Request[v1.QueryRequest]) (*connect.Response[v1.QueryResponse], error)
 }
 
@@ -76,8 +76,8 @@ func (c *orgServiceClient) Query(ctx context.Context, req *connect.Request[v1.Qu
 
 // OrgServiceHandler is an implementation of the registry.v1.OrgService service.
 type OrgServiceHandler interface {
-	// Query parses a DSL expression and executes the corresponding org-chart operation.
-	// Supported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)
+	// Query parses an HRQL expression and executes it against the employee hierarchy.
+	// Examples: "reports(self, 1)", "employees | where(.employment_type == \"CONTRACTOR\") | count"
 	Query(context.Context, *connect.Request[v1.QueryRequest]) (*connect.Response[v1.QueryResponse], error)
 }
 

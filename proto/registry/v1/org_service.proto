@@ -7,8 +7,8 @@ import "google/api/annotations.proto";
 import "google/protobuf/struct.proto";
 
 service OrgService {
-  // Query parses a DSL expression and executes the corresponding org-chart operation.
-  // Supported: CHAIN(id, steps), PEERS(id, dimension), REPORTS(id [, true]), REPORTSTO(id, id)
+  // Query parses an HRQL expression and executes it against the employee hierarchy.
+  // Examples: "reports(self, 1)", "employees | where(.employment_type == \"CONTRACTOR\") | count"
   rpc Query(QueryRequest) returns (QueryResponse) {
     option (google.api.http) = {
       post: "/api/org/query"
@@ -18,21 +18,25 @@ service OrgService {
 }
 
 message QueryRequest {
-  // DSL expression, e.g. "CHAIN(uuid, -1)" or "REPORTSTO(uuid, uuid)".
+  // HRQL expression, e.g. "reports(self, 1) | where(.employment_type == \"FULL_TIME\") | count".
   string query = 1 [(buf.validate.field).string.min_len = 1];
-  // Optional list parameters (ignored by REPORTSTO).
+  // Optional list parameters (ignored by scalar/boolean results).
   string select = 2;
   string expand = 3;
   string order = 4;
   int32 limit = 5 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
   string cursor = 6;
+  // UUID of the employee context (the "self" pronoun). Required when query references "self".
+  string self_id = 7;
 }
 
 message QueryResponse {
-  // List results (CHAIN, PEERS, REPORTS).
+  // List results (org functions, employees | where).
   repeated google.protobuf.Struct results = 1;
   int64 total_count = 2;
   optional string next_cursor = 3;
-  // Boolean result (REPORTSTO).
+  // Boolean result (reports_to).
   optional bool reports_to = 4;
+  // Scalar result (aggregation output like count, avg, sum, min, max).
+  optional double scalar = 5;
 }

@@ -21,7 +21,8 @@ task proto           # runs buf generate → gen/ (protoc-gen-go, protoc-gen-con
 cd frontend && bun install && bun run dev   # vite dev server, proxies /api → localhost:8080
 cd frontend && bun run build                # tsc + vite build
 
-# No tests exist yet
+# Tests
+go test ./internal/hrql/...  # lexer, parser, compiler unit tests (no DB required)
 ```
 
 ## Architecture
@@ -32,11 +33,11 @@ cd frontend && bun run build                # tsc + vite build
 
 **Query Builder** (`internal/query/`): `NewBuilder(obj)` dispatches to `StandardBuilder` (real `core.*` tables) or `CustomBuilder` (JSONB `metadata.records`). Uses Squirrel with `sq.Dollar` placeholders. Expansion via LEFT JOIN LATERAL. Keyset pagination with base64url cursor. `QueryParams.ExtraConditions` allows injecting raw `sq.Sqlizer` WHERE clauses (used by OrgService for ltree filters).
 
-**Org Chart** (`internal/service/org.go`, `orgdsl.go`, `internal/query/org.go`): Single `POST /api/org/query` endpoint accepts a DSL expression string. Backend parses it in `orgdsl.go` (`parseDSL`) and dispatches to the appropriate handler. DSL functions: `CHAIN(id, steps)`, `PEERS(id, dimension)`, `REPORTS(id [, true])`, `REPORTSTO(id, id)`. Condition builders in `query/org.go` (`ChainUp`, `ChainDown`, `Subtree`, `SameField`) produce ltree WHERE clauses injected via `ExtraConditions`.
+**HRQL** (`internal/hrql/`): Pipe-based query language for HR data. Single `POST /api/org/query` endpoint accepts an HRQL expression + optional `self_id` (UUID of the `self` pronoun). The `hrql` package has: `lexer.go` (tokenizer), `parser.go` (recursive descent → AST), `compiler.go` (AST → SQL via Squirrel), `eval.go` (aggregate SQL builder). Org functions (`chain`, `reports`, `peers`, `colleagues`, `reports_to`) compile to ltree WHERE clauses via condition builders in `query/org.go` (`ChainUp`, `ChainDown`, `ChainAll`, `Subtree`, `SameField`), injected via `ExtraConditions`. `where` conditions compile to `sq.Sqlizer` expressions. Aggregations (`count`, `sum`, `avg`, `min`, `max`) compile to `SELECT agg(col) FROM ... WHERE ...`. String ops (`contains`, `starts_with`, `ends_with`) compile to `ILIKE`. Correlated subqueries (`reports(., 1) | count > 0` inside `where`) compile to scalar subselects. The compiler resolves `self.field` to literal values via DB lookups at compile time. Named employee references are NOT supported — frontend resolves names to UUIDs before sending. Language spec: `docs/adr/001-HRQL.md`. Data model mapping: `docs/adr/002-HRQL-data-model-mapping.md`.
 
 **Database**: PostgreSQL 16 with `pg_uuidv7` and `ltree` extensions. Two schemas: `metadata` (object/field registry + JSONB records) and `core` (real application tables). `core.employees.manager_path` is a materialized ltree path maintained by BEFORE/AFTER triggers on `manager_id`. SP-GiST index for `<@`/`@>` queries. Migrations are plain SQL files run via `psql` pipe in Taskfile.
 
-**Frontend**: React 19 + Vite + TypeScript. Plain `fetch` calls (no codegen from proto). Vanguard returns camelCase JSON. `@glideapps/glide-data-grid` for data explorer. State-based routing via discriminated union, no router library. Org Chart page (`OrgPage.tsx`) has a DSL text input with employee picker and function template buttons.
+**Frontend**: React 19 + Vite + TypeScript. Plain `fetch` calls (no codegen from proto). Vanguard returns camelCase JSON. `@glideapps/glide-data-grid` for data explorer. State-based routing via discriminated union, no router library. Org Chart page (`OrgPage.tsx`) has a DSL text input with employee picker and function template buttons. **Note**: Frontend still uses old DSL syntax — needs update for HRQL.
 
 ## Key Conventions
 
