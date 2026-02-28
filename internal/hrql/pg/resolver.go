@@ -38,7 +38,7 @@ func (r *Resolver) LookupPath(ctx context.Context, id string) (string, error) {
 }
 
 func (r *Resolver) LookupFieldValue(ctx context.Context, id, fieldAPIName string) (string, error) {
-	column := r.resolveColumn(fieldAPIName)
+	column := ResolveColumn(r.empObj, fieldAPIName)
 
 	var value *string
 	q := fmt.Sprintf(`SELECT %s::text FROM "core"."employees" WHERE "id" = $1`, schema.QuoteIdent(column))
@@ -53,15 +53,4 @@ func (r *Resolver) LookupFieldValue(ctx context.Context, id, fieldAPIName string
 		return "", nil
 	}
 	return *value, nil
-}
-
-// resolveColumn maps a field API name to its storage column.
-func (r *Resolver) resolveColumn(apiName string) string {
-	if r.empObj != nil {
-		if fd, ok := r.empObj.FieldsByAPIName[apiName]; ok && fd.StorageColumn != nil {
-			return *fd.StorageColumn
-		}
-	}
-	// Fallback: API name == column name (for standard fields like id).
-	return apiName
 }

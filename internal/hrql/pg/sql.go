@@ -1,4 +1,4 @@
-package query
+package pg
 
 import (
 	"fmt"
@@ -6,6 +6,8 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
+
+const qAlias = "_e"
 
 // QI is shorthand for schema.QuoteIdent.
 func QI(name string) string { return schema.QuoteIdent(name) }
@@ -53,8 +55,8 @@ func expandExpr(alias string) string {
 		QI(alias), QI(alias))
 }
 
-// fkRef returns the SQL for a FK reference in lateral joins.
-func fkRef(alias string, fd *schema.FieldDef) string {
+// FKRef returns the SQL for a FK reference in lateral joins and subqueries.
+func FKRef(alias string, fd *schema.FieldDef) string {
 	if fd.StorageColumn != nil {
 		return fmt.Sprintf(`%s.%s`, QI(alias), QI(*fd.StorageColumn))
 	}

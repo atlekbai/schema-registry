@@ -6,14 +6,13 @@ import (
 	sq "github.com/Masterminds/squirrel"
 
 	"github.com/atlekbai/schema_registry/internal/hrql"
-	"github.com/atlekbai/schema_registry/internal/query"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
 // SQLResult is the output of translating a Plan into SQL-ready components.
 type SQLResult struct {
 	Conditions []sq.Sqlizer
-	OrderBy    *query.OrderClause
+	OrderBy    *OrderClause
 	Limit      int
 	PickOp     string
 	PickN      int
@@ -33,7 +32,7 @@ func Translate(plan *hrql.Plan, obj *schema.ObjectDef, cache *schema.Cache) (*SQ
 
 	// Translate ordering.
 	if plan.OrderBy != nil {
-		result.OrderBy = &query.OrderClause{
+		result.OrderBy = &OrderClause{
 			FieldAPIName: plan.OrderBy.Field,
 			Desc:         plan.OrderBy.Desc,
 		}
@@ -41,7 +40,7 @@ func Translate(plan *hrql.Plan, obj *schema.ObjectDef, cache *schema.Cache) (*SQ
 
 	// Translate conditions.
 	for _, c := range plan.Conditions {
-		sqlCond, err := conditionToSQL(c, obj, cache)
+		sqlCond, err := ConditionToSQL(c, obj, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -61,11 +60,24 @@ func Translate(plan *hrql.Plan, obj *schema.ObjectDef, cache *schema.Cache) (*SQ
 	return result, nil
 }
 
-// conditionToSQL translates a single Condition to a Squirrel SQL expression.
-func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache) (sq.Sqlizer, error) {
+// TranslateConditions converts a slice of storage-agnostic Conditions to SQL expressions.
+func TranslateConditions(conds []hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache) ([]sq.Sqlizer, error) {
+	var result []sq.Sqlizer
+	for _, c := range conds {
+		sql, err := ConditionToSQL(c, obj, cache)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, sql)
+	}
+	return result, nil
+}
+
+// ConditionToSQL translates a single Condition to a Squirrel SQL expression.
+func ConditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache) (sq.Sqlizer, error) {
 	switch c := c.(type) {
 	case hrql.IdentityFilter:
-		col := fmt.Sprintf(`%s."id"`, query.QI(query.Alias()))
+		col := fmt.Sprintf(`%s."id"`, QI(Alias()))
 		return sq.Eq{col: c.ID}, nil
 
 	case hrql.NullFilter:
@@ -78,22 +90,22 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 		return stringMatchToSQL(c, obj)
 
 	case hrql.AndCond:
-		left, err := conditionToSQL(c.Left, obj, cache)
+		left, err := ConditionToSQL(c.Left, obj, cache)
 		if err != nil {
 			return nil, err
 		}
-		right, err := conditionToSQL(c.Right, obj, cache)
+		right, err := ConditionToSQL(c.Right, obj, cache)
 		if err != nil {
 			return nil, err
 		}
 		return sq.And{left, right}, nil
 
 	case hrql.OrCond:
-		left, err := conditionToSQL(c.Left, obj, cache)
+		left, err := ConditionToSQL(c.Left, obj, cache)
 		if err != nil {
 			return nil, err
 		}
-		right, err := conditionToSQL(c.Right, obj, cache)
+		right, err := ConditionToSQL(c.Right, obj, cache)
 		if err != nil {
 			return nil, err
 		}
@@ -112,7 +124,7 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 		return Subtree(c.Path), nil
 
 	case hrql.SameFieldCond:
-		column := resolveColumn(obj, c.Field)
+		column := ResolveColumn(obj, c.Field)
 		return SameField(column, c.Value, c.ExcludeID), nil
 
 	case hrql.ReportsTo:
@@ -121,6 +133,36 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 	case hrql.SubqueryAgg:
 		return subqueryAggToSQL(c, obj)
 
+	case hrql.InFilter:
+		fd := obj.FieldsByAPIName[c.Field[0]]
+		if fd == nil {
+			return nil, fmt.Errorf("unknown field %q", c.Field[0])
+		}
+		col := FilterExpr(Alias(), fd)
+		return sq.Expr(fmt.Sprintf(`%s = ANY(?)`, col), c.Values), nil
+
+	case hrql.IsNullFilter:
+		fd := obj.FieldsByAPIName[c.Field[0]]
+		if fd == nil {
+			return nil, fmt.Errorf("unknown field %q", c.Field[0])
+		}
+		col := FilterExpr(Alias(), fd)
+		if c.IsNull {
+			return sq.Eq{col: nil}, nil
+		}
+		return sq.NotEq{col: nil}, nil
+
+	case hrql.LikeFilter:
+		fd := obj.FieldsByAPIName[c.Field[0]]
+		if fd == nil {
+			return nil, fmt.Errorf("unknown field %q", c.Field[0])
+		}
+		col := FilterExpr(Alias(), fd)
+		if c.CaseInsensitive {
+			return sq.Expr(fmt.Sprintf(`%s ILIKE ?`, col), c.Pattern), nil
+		}
+		return sq.Expr(fmt.Sprintf(`%s LIKE ?`, col), c.Pattern), nil
+
 	default:
 		return nil, fmt.Errorf("unknown condition type %T", c)
 	}
@@ -128,14 +170,14 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 
 // fieldCmpToSQL translates a FieldCmp to SQL.
 func fieldCmpToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cache) (sq.Sqlizer, error) {
-	alias := query.Alias()
+	alias := Alias()
 
 	if len(c.Field) == 1 {
 		fd := obj.FieldsByAPIName[c.Field[0]]
 		if fd == nil {
 			return nil, fmt.Errorf("unknown field %q", c.Field[0])
 		}
-		col := query.FilterExpr(alias, fd)
+		col := FilterExpr(alias, fd)
 		return comparisonExpr(col, c.Op, c.Value), nil
 	}
 
@@ -145,7 +187,7 @@ func fieldCmpToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cache) 
 
 // lookupChainToSQL builds a subquery for lookup-chain field comparisons.
 func lookupChainToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cache) (sq.Sqlizer, error) {
-	alias := query.Alias()
+	alias := Alias()
 
 	fd := obj.FieldsByAPIName[c.Field[0]]
 	if fd == nil || fd.Type != schema.FieldLookup || fd.LookupObjectID == nil {
@@ -159,12 +201,12 @@ func lookupChainToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cach
 
 	// For 2-level chains: (SELECT col FROM target WHERE id = fk_ref)
 	if len(c.Field) == 2 {
-		fkCol := fkRefExpr(alias, fd)
+		fkCol := FKRef(alias, fd)
 		nextFd := targetObj.FieldsByAPIName[c.Field[1]]
 		if nextFd == nil {
 			return nil, fmt.Errorf("unknown field %q on %s", c.Field[1], targetObj.APIName)
 		}
-		targetCol := query.FilterExpr("_sub", nextFd)
+		targetCol := FilterExpr("_sub", nextFd)
 		targetFrom := targetObj.TableName()
 		subSQL := fmt.Sprintf(`(SELECT %s FROM %s "_sub" WHERE "_sub"."id" = %s)`, targetCol, targetFrom, fkCol)
 		return comparisonExpr(subSQL, c.Op, c.Value), nil
@@ -182,7 +224,7 @@ func stringMatchToSQL(c hrql.StringMatch, obj *schema.ObjectDef) (sq.Sqlizer, er
 	if fd == nil {
 		return nil, fmt.Errorf("unknown field %q", c.Field[0])
 	}
-	col := query.FilterExpr(query.Alias(), fd)
+	col := FilterExpr(Alias(), fd)
 
 	switch c.Op {
 	case "contains":
@@ -203,7 +245,7 @@ func subqueryAggToSQL(c hrql.SubqueryAgg, obj *schema.ObjectDef) (sq.Sqlizer, er
 
 	switch c.OrgFunc {
 	case "reports":
-		outerPath := fmt.Sprintf(`%s."manager_path"`, query.QI(query.Alias()))
+		outerPath := fmt.Sprintf(`%s."manager_path"`, QI(Alias()))
 
 		var whereCond string
 		if c.Depth == 0 {
@@ -232,8 +274,8 @@ func buildAggregate(
 	aggField string,
 	conditions []sq.Sqlizer,
 ) (string, []any, error) {
-	alias := query.Alias()
-	from, baseWhere := query.TableSource(obj, alias)
+	alias := Alias()
+	from, baseWhere := TableSource(obj, alias)
 
 	var col string
 	switch {
@@ -242,7 +284,7 @@ func buildAggregate(
 	case aggField != "":
 		fd := obj.FieldsByAPIName[aggField]
 		if fd != nil {
-			col = query.FilterExpr(alias, fd)
+			col = FilterExpr(alias, fd)
 		} else {
 			col = "*"
 		}
@@ -287,19 +329,8 @@ func sqlOp(op string) string {
 	}
 }
 
-func fkRefExpr(alias string, fd *schema.FieldDef) string {
-	if fd.StorageColumn != nil {
-		return fmt.Sprintf(`%s.%s`, query.QI(alias), query.QI(*fd.StorageColumn))
-	}
-	return fmt.Sprintf(`(%s."data"->>%s)::uuid`, query.QI(alias), quoteLit(fd.APIName))
-}
-
-func quoteLit(s string) string {
-	return "'" + s + "'"
-}
-
-// resolveColumn maps a field API name to its storage column via the object definition.
-func resolveColumn(obj *schema.ObjectDef, apiName string) string {
+// ResolveColumn maps a field API name to its storage column via the object definition.
+func ResolveColumn(obj *schema.ObjectDef, apiName string) string {
 	if fd, ok := obj.FieldsByAPIName[apiName]; ok && fd.StorageColumn != nil {
 		return *fd.StorageColumn
 	}

@@ -1,4 +1,4 @@
-package hrql
+package parser
 
 import (
 	"fmt"
@@ -121,9 +121,6 @@ func (p *parser) parsePipeIdent() (Node, error) {
 	case "count", "sum", "avg", "min", "max":
 		p.advance()
 		return &AggExpr{Op: name}, nil
-	case "unique", "upper", "lower", "length":
-		p.advance()
-		return &FuncCall{Name: name, Args: nil}, nil
 	default:
 		// Check if it's a function call: ident(
 		return p.parseFuncCallOrIdent()
@@ -375,6 +372,7 @@ func (p *parser) parseNth() (Node, error) {
 }
 
 // parseFuncCallOrIdent handles `ident(args...)` or bare `ident`.
+// Registered functions are validated for arg count (Prometheus-style).
 func (p *parser) parseFuncCallOrIdent() (Node, error) {
 	tok, err := p.peek()
 	if err != nil {
@@ -385,6 +383,7 @@ func (p *parser) parseFuncCallOrIdent() (Node, error) {
 	}
 	p.advance()
 	name := tok.Lit
+	pos := tok.Pos
 
 	// Check for function call: ident(
 	next, err := p.peek()
@@ -392,10 +391,22 @@ func (p *parser) parseFuncCallOrIdent() (Node, error) {
 		return nil, err
 	}
 	if next.Kind != TokLParen {
+		// No parens — check for zero-arg registered function.
+		if def, ok := GetFunction(name); ok {
+			if len(def.ArgTypes) > 0 {
+				return nil, p.errorf(pos, "function %q requires arguments", name)
+			}
+			return &FuncCall{Func: def, Name: name}, nil
+		}
 		return &IdentExpr{Name: name}, nil
 	}
 
-	// Function call
+	// Function call with parens — lookup required.
+	def, ok := GetFunction(name)
+	if !ok {
+		return nil, p.errorf(pos, "unknown function %q", name)
+	}
+
 	p.advance() // consume (
 	var args []Node
 	for {
@@ -419,7 +430,17 @@ func (p *parser) parseFuncCallOrIdent() (Node, error) {
 	}
 	p.advance() // consume )
 
-	return &FuncCall{Name: name, Args: args}, nil
+	// Validate arg count.
+	minArgs := len(def.ArgTypes) - def.Variadic
+	maxArgs := len(def.ArgTypes)
+	if len(args) < minArgs || len(args) > maxArgs {
+		if minArgs == maxArgs {
+			return nil, p.errorf(pos, "function %q requires exactly %d argument(s), got %d", name, minArgs, len(args))
+		}
+		return nil, p.errorf(pos, "function %q requires %d to %d arguments, got %d", name, minArgs, maxArgs, len(args))
+	}
+
+	return &FuncCall{Func: def, Name: name, Args: args}, nil
 }
 
 // --- Boolean expression parsing (inside where) ---

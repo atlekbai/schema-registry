@@ -1,4 +1,4 @@
-package query
+package pg
 
 import (
 	"fmt"
@@ -53,7 +53,7 @@ func buildLateral(ep *ExpandPlan, outerRef, prefix string, depth int) (sql strin
 			childAlias := expandAlias(childName)
 			cols = append(cols, fmt.Sprintf(`%s AS %s`, expandExpr(childAlias), QI(f.APIName)))
 
-			childRef := fkRef(inner, child.Field)
+			childRef := FKRef(inner, child.Field)
 			nj, na := buildLateral(child, childRef, name+"__", depth+1)
 			nestedJoins = append(nestedJoins, nj)
 			args = append(args, na...)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 )
 
 // Resolver abstracts DB lookups needed during HRQL compilation.
@@ -17,29 +19,29 @@ type Resolver interface {
 // --- Argument resolution helpers ---
 
 // resolveEmployeeArg resolves a function argument to an employee UUID string.
-func (c *Compiler) resolveEmployeeArg(ctx context.Context, arg Node) (string, error) {
+func (c *Compiler) resolveEmployeeArg(ctx context.Context, arg parser.Node) (string, error) {
 	switch a := arg.(type) {
-	case *SelfExpr:
+	case *parser.SelfExpr:
 		if c.selfID == "" {
 			return "", fmt.Errorf("`self` requires self_id in the request")
 		}
 		return c.selfID, nil
-	case *DotExpr:
+	case *parser.DotExpr:
 		return "", fmt.Errorf("'.' cannot be resolved to an employee ID outside of where subqueries")
-	case *PipeExpr:
+	case *parser.PipeExpr:
 		// self.manager → need to resolve.
 		if len(a.Steps) == 2 {
-			if _, ok := a.Steps[0].(*SelfExpr); ok {
-				if fa, ok := a.Steps[1].(*FieldAccess); ok {
+			if _, ok := a.Steps[0].(*parser.SelfExpr); ok {
+				if fa, ok := a.Steps[1].(*parser.FieldAccess); ok {
 					return c.resolveSelfLookup(ctx, fa)
 				}
 			}
 		}
 		return "", fmt.Errorf("cannot resolve complex pipe expression to employee ID")
-	case *IdentExpr:
+	case *parser.IdentExpr:
 		return a.Name, nil
-	case *Literal:
-		if a.Kind == TokString {
+	case *parser.Literal:
+		if a.Kind == parser.TokString {
 			return a.Value, nil
 		}
 		return "", fmt.Errorf("expected employee reference, got %s", a.Kind)
@@ -49,7 +51,7 @@ func (c *Compiler) resolveEmployeeArg(ctx context.Context, arg Node) (string, er
 }
 
 // resolveSelfLookup resolves self.field to a value (for LOOKUP fields, returns the FK UUID).
-func (c *Compiler) resolveSelfLookup(ctx context.Context, fa *FieldAccess) (string, error) {
+func (c *Compiler) resolveSelfLookup(ctx context.Context, fa *parser.FieldAccess) (string, error) {
 	if len(fa.Chain) == 0 {
 		return "", fmt.Errorf("empty field access")
 	}
@@ -90,10 +92,10 @@ func (c *Compiler) resolveChainedLookup(ctx context.Context, currentID string, f
 	return currentID, nil
 }
 
-func (c *Compiler) resolveIntArg(arg Node) (int, error) {
+func (c *Compiler) resolveIntArg(arg parser.Node) (int, error) {
 	switch a := arg.(type) {
-	case *Literal:
-		if a.Kind != TokNumber {
+	case *parser.Literal:
+		if a.Kind != parser.TokNumber {
 			return 0, fmt.Errorf("expected number, got %s", a.Kind)
 		}
 		n, err := strconv.Atoi(a.Value)
@@ -101,7 +103,7 @@ func (c *Compiler) resolveIntArg(arg Node) (int, error) {
 			return 0, fmt.Errorf("invalid integer %q: %w", a.Value, err)
 		}
 		return n, nil
-	case *UnaryMinus:
+	case *parser.UnaryMinus:
 		inner, err := c.resolveIntArg(a.Expr)
 		if err != nil {
 			return 0, err

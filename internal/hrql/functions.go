@@ -3,31 +3,58 @@ package hrql
 import (
 	"context"
 	"fmt"
+
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 )
 
-// compileFuncCall handles org functions at source position.
-func (c *Compiler) compileFuncCall(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	switch fn.Name {
-	case "chain":
-		return c.compileChain(ctx, fn)
-	case "reports":
-		return c.compileReports(ctx, fn)
-	case "peers":
-		return c.compilePeers(ctx, fn)
-	case "colleagues":
-		return c.compileColleagues(ctx, fn)
-	case "reports_to":
-		return c.compileReportsTo(ctx, fn)
-	default:
-		return nil, fmt.Errorf("unknown function %q", fn.Name)
-	}
+// SourceCall compiles a function at source position into a Plan.
+type SourceCall func(c *Compiler, ctx context.Context, fn *parser.FuncCall) (*Plan, error)
+
+// PipeCall applies a function in pipe position to an existing Plan.
+type PipeCall func(c *Compiler, ctx context.Context, plan *Plan, fn *parser.FuncCall) (*Plan, error)
+
+// SourceCalls maps function names to their source-position compilers.
+var SourceCalls = map[string]SourceCall{
+	"chain":      (*Compiler).compileChain,
+	"reports":    (*Compiler).compileReports,
+	"peers":      (*Compiler).compilePeers,
+	"colleagues": (*Compiler).compileColleagues,
+	"reports_to": (*Compiler).compileReportsTo,
 }
 
-func (c *Compiler) compileChain(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	if len(fn.Args) < 1 || len(fn.Args) > 2 {
-		return nil, fmt.Errorf("chain() requires 1-2 arguments: chain(employee [, depth])")
-	}
+// PipeCalls maps function names to their pipe-position handlers.
+var PipeCalls = map[string]PipeCall{
+	"contains":    pipeStringOpError,
+	"starts_with": pipeStringOpError,
+	"ends_with":   pipeStringOpError,
+	"unique":      pipePassthrough,
+	"upper":       pipePassthrough,
+	"lower":       pipePassthrough,
+	"length":      pipeLength,
+}
 
+// --- Dispatchers ---
+
+// compileFuncCall handles functions at source position via SourceCalls map.
+func (c *Compiler) compileFuncCall(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
+	call, ok := SourceCalls[fn.Name]
+	if !ok {
+		return nil, fmt.Errorf("unknown function %q", fn.Name)
+	}
+	return call(c, ctx, fn)
+}
+
+func (c *Compiler) applyFuncInPipe(ctx context.Context, plan *Plan, fn *parser.FuncCall) (*Plan, error) {
+	call, ok := PipeCalls[fn.Name]
+	if !ok {
+		return nil, fmt.Errorf("function %q is not supported in pipe position", fn.Name)
+	}
+	return call(c, ctx, plan, fn)
+}
+
+// --- Source function implementations ---
+
+func (c *Compiler) compileChain(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
 	empID, err := c.resolveEmployeeArg(ctx, fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("chain arg 1: %w", err)
@@ -61,11 +88,7 @@ func (c *Compiler) compileChain(ctx context.Context, fn *FuncCall) (*Plan, error
 	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
 }
 
-func (c *Compiler) compileReports(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	if len(fn.Args) < 1 || len(fn.Args) > 2 {
-		return nil, fmt.Errorf("reports() requires 1-2 arguments: reports(employee [, depth])")
-	}
-
+func (c *Compiler) compileReports(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
 	empID, err := c.resolveEmployeeArg(ctx, fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("reports arg 1: %w", err)
@@ -94,11 +117,7 @@ func (c *Compiler) compileReports(ctx context.Context, fn *FuncCall) (*Plan, err
 	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
 }
 
-func (c *Compiler) compilePeers(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	if len(fn.Args) != 1 {
-		return nil, fmt.Errorf("peers() requires 1 argument: peers(employee)")
-	}
-
+func (c *Compiler) compilePeers(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
 	empID, err := c.resolveEmployeeArg(ctx, fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("peers arg 1: %w", err)
@@ -118,17 +137,13 @@ func (c *Compiler) compilePeers(ctx context.Context, fn *FuncCall) (*Plan, error
 	}, nil
 }
 
-func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	if len(fn.Args) != 2 {
-		return nil, fmt.Errorf("colleagues() requires 2 arguments: colleagues(employee, .field)")
-	}
-
+func (c *Compiler) compileColleagues(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
 	empID, err := c.resolveEmployeeArg(ctx, fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("colleagues arg 1: %w", err)
 	}
 
-	fa, ok := fn.Args[1].(*FieldAccess)
+	fa, ok := fn.Args[1].(*parser.FieldAccess)
 	if !ok {
 		return nil, fmt.Errorf("colleagues arg 2: expected field reference (.field), got %T", fn.Args[1])
 	}
@@ -155,11 +170,7 @@ func (c *Compiler) compileColleagues(ctx context.Context, fn *FuncCall) (*Plan, 
 	}, nil
 }
 
-func (c *Compiler) compileReportsTo(ctx context.Context, fn *FuncCall) (*Plan, error) {
-	if len(fn.Args) != 2 {
-		return nil, fmt.Errorf("reports_to() requires 2 arguments: reports_to(employee, target)")
-	}
-
+func (c *Compiler) compileReportsTo(ctx context.Context, fn *parser.FuncCall) (*Plan, error) {
 	empID, err := c.resolveEmployeeArg(ctx, fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("reports_to arg 1: %w", err)
@@ -181,4 +192,20 @@ func (c *Compiler) compileReportsTo(ctx context.Context, fn *FuncCall) (*Plan, e
 
 	result := isDescendant(empPath, tgtPath)
 	return &Plan{Kind: PlanBoolean, BoolResult: &result}, nil
+}
+
+// --- Pipe function implementations ---
+
+func pipeStringOpError(_ *Compiler, _ context.Context, _ *Plan, fn *parser.FuncCall) (*Plan, error) {
+	return nil, fmt.Errorf("%s() is only supported inside where() conditions", fn.Name)
+}
+
+func pipePassthrough(_ *Compiler, _ context.Context, plan *Plan, _ *parser.FuncCall) (*Plan, error) {
+	return plan, nil
+}
+
+func pipeLength(_ *Compiler, _ context.Context, plan *Plan, _ *parser.FuncCall) (*Plan, error) {
+	plan.Kind = PlanScalar
+	plan.AggFunc = "count"
+	return plan, nil
 }

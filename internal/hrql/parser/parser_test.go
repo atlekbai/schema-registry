@@ -1,4 +1,4 @@
-package hrql
+package parser
 
 import (
 	"strings"
@@ -281,13 +281,16 @@ func TestParseFuncCall(t *testing.T) {
 }
 
 func TestParseFuncCallNoArgs(t *testing.T) {
-	node := mustParse(t, `today()`)
+	node := mustParse(t, `length()`)
 	fn, ok := node.(*FuncCall)
 	if !ok {
 		t.Fatalf("expected *FuncCall, got %T", node)
 	}
-	if fn.Name != "today" || len(fn.Args) != 0 {
-		t.Fatalf("expected today() with 0 args, got %q(%d)", fn.Name, len(fn.Args))
+	if fn.Name != "length" || len(fn.Args) != 0 {
+		t.Fatalf("expected length() with 0 args, got %q(%d)", fn.Name, len(fn.Args))
+	}
+	if fn.Func == nil || fn.Func.ReturnKind != KindScalar {
+		t.Fatal("expected Func with KindScalar")
 	}
 }
 
@@ -552,4 +555,45 @@ func TestParseErrorUnclosedParen(t *testing.T) {
 
 func TestParseErrorWhereNoParen(t *testing.T) {
 	expectParseError(t, "employees | where .x == 1", "expected (")
+}
+
+func TestParseErrorUnknownFunction(t *testing.T) {
+	expectParseError(t, `unknown_func("x")`, `unknown function "unknown_func"`)
+}
+
+func TestParseErrorArgCount(t *testing.T) {
+	expectParseError(t, `peers(self, self)`, "requires exactly 1 argument(s)")
+	expectParseError(t, `chain(self, 1, 2)`, "requires 1 to 2 arguments")
+	expectParseError(t, `contains()`, "requires exactly 1 argument(s)")
+}
+
+func TestParseFuncDefEmbedded(t *testing.T) {
+	node := mustParse(t, `reports(self, 1)`)
+	fn := node.(*FuncCall)
+	if fn.Func == nil {
+		t.Fatal("expected Func to be set")
+	}
+	if fn.Func.Name != "reports" {
+		t.Fatalf("expected Func.Name 'reports', got %q", fn.Func.Name)
+	}
+	if fn.Func.ReturnKind != KindList {
+		t.Fatalf("expected KindList, got %v", fn.Func.ReturnKind)
+	}
+}
+
+func TestParsePipeTransformFuncs(t *testing.T) {
+	for _, name := range []string{"unique", "upper", "lower", "length"} {
+		node := mustParse(t, "employees | "+name)
+		pipe := node.(*PipeExpr)
+		fn, ok := pipe.Steps[1].(*FuncCall)
+		if !ok {
+			t.Fatalf("%s: expected *FuncCall, got %T", name, pipe.Steps[1])
+		}
+		if fn.Name != name {
+			t.Fatalf("expected %q, got %q", name, fn.Name)
+		}
+		if fn.Func == nil {
+			t.Fatalf("%s: expected Func to be set", name)
+		}
+	}
 }

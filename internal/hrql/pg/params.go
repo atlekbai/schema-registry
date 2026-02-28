@@ -1,4 +1,4 @@
-package query
+package pg
 
 import (
 	"encoding/base64"
@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/atlekbai/schema_registry/internal/hrql"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
@@ -72,14 +73,15 @@ func DecodeCursor(raw string) (*Cursor, error) {
 }
 
 type QueryParams struct {
-	Select          []string
-	Expand          []string
-	ExpandPlans     []ExpandPlan
-	Filters         []Filter
-	Order           *OrderClause
-	Limit           int
-	Cursor          *Cursor
-	ExtraConditions []sq.Sqlizer // additional WHERE clauses (e.g. ltree)
+	Select      []string
+	Expand      []string
+	ExpandPlans []ExpandPlan
+	Conditions  []hrql.Condition // storage-agnostic conditions (from REST filters + HRQL plan)
+	Order       *OrderClause
+	Limit       int
+	Cursor      *Cursor
+
+	SQLConditions []sq.Sqlizer // translated SQL conditions, populated after TranslateConditions
 }
 
 // ParseParams builds QueryParams from a transport-agnostic ParamsInput.
@@ -155,22 +157,14 @@ func ParseParams(obj *schema.ObjectDef, input ParamsInput) (*QueryParams, error)
 
 	// filters
 	for key, value := range input.Filters {
-		fd, ok := obj.FieldsByAPIName[key]
-		if !ok {
+		if _, ok := obj.FieldsByAPIName[key]; !ok {
 			return nil, fmt.Errorf("unknown filter field %q", key)
 		}
-		_ = fd
-
-		op, val, err := ParseFilter(value)
+		cond, err := ParseFilterCondition(key, value)
 		if err != nil {
 			return nil, fmt.Errorf("filter %q: %w", key, err)
 		}
-
-		p.Filters = append(p.Filters, Filter{
-			FieldAPIName: key,
-			Op:           op,
-			Value:        val,
-		})
+		p.Conditions = append(p.Conditions, cond)
 	}
 
 	return p, nil

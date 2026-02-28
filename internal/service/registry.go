@@ -15,7 +15,7 @@ import (
 
 	registryv1 "github.com/atlekbai/schema_registry/gen/registry/v1"
 	registryv1connect "github.com/atlekbai/schema_registry/gen/registry/v1/registryv1connect"
-	"github.com/atlekbai/schema_registry/internal/query"
+	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
@@ -42,7 +42,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no object registered with api_name %q", msg.ObjectName))
 	}
 
-	params, err := query.ParseParams(obj, query.ParamsInput{
+	params, err := hrqlpg.ParseParams(obj, hrqlpg.ParamsInput{
 		Select:  msg.Select,
 		Expand:  msg.Expand,
 		Order:   msg.Order,
@@ -54,8 +54,14 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
-	builder := query.NewBuilder(obj)
+	params.ExpandPlans = hrqlpg.ResolveExpands(params.Expand, obj, s.cache)
+
+	params.SQLConditions, err = hrqlpg.TranslateConditions(params.Conditions, obj, s.cache)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	builder := hrqlpg.NewBuilder(obj)
 
 	g, gctx := errgroup.WithContext(ctx)
 
@@ -94,7 +100,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 	if len(rows) > params.Limit {
 		rows = rows[:params.Limit]
 		last := rows[params.Limit-1]
-		encoded := query.EncodeCursor(last.CursorID, last.CursorVal)
+		encoded := hrqlpg.EncodeCursor(last.CursorID, last.CursorVal)
 		resp.NextCursor = &encoded
 	}
 
@@ -122,7 +128,7 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid ID format: %w", err))
 	}
 
-	params, err := query.ParseParams(obj, query.ParamsInput{
+	params, err := hrqlpg.ParseParams(obj, hrqlpg.ParamsInput{
 		Select: msg.Select,
 		Expand: msg.Expand,
 	})
@@ -130,8 +136,8 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
-	builder := query.NewBuilder(obj)
+	params.ExpandPlans = hrqlpg.ResolveExpands(params.Expand, obj, s.cache)
+	builder := hrqlpg.NewBuilder(obj)
 
 	sqlStr, args, err := builder.BuildGetByID(id, params)
 	if err != nil {
@@ -157,7 +163,7 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 
 // resolveCount uses the EXPLAIN trick for cheap estimation on large tables,
 // falling back to exact count only when the planner estimate is small.
-func (s *RegistryService) resolveCount(ctx context.Context, builder query.Builder, obj *schema.ObjectDef, params *query.QueryParams) (int64, error) {
+func (s *RegistryService) resolveCount(ctx context.Context, builder hrqlpg.Builder, obj *schema.ObjectDef, params *hrqlpg.QueryParams) (int64, error) {
 	estSQL, estArgs, err := builder.BuildEstimate(params)
 	if err != nil {
 		return 0, err

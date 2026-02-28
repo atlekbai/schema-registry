@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
@@ -26,24 +27,24 @@ func NewCompiler(cache *schema.Cache, resolver Resolver, selfID string) *Compile
 }
 
 // Compile compiles an AST node into a storage-agnostic Plan.
-func (c *Compiler) Compile(ctx context.Context, node Node) (*Plan, error) {
+func (c *Compiler) Compile(ctx context.Context, node parser.Node) (*Plan, error) {
 	if c.empObj == nil {
 		return nil, fmt.Errorf("employees object not found in schema cache")
 	}
 	return c.compileNode(ctx, node)
 }
 
-func (c *Compiler) compileNode(ctx context.Context, node Node) (*Plan, error) {
+func (c *Compiler) compileNode(ctx context.Context, node parser.Node) (*Plan, error) {
 	switch n := node.(type) {
-	case *PipeExpr:
+	case *parser.PipeExpr:
 		return c.compilePipe(ctx, n)
-	case *SelfExpr:
+	case *parser.SelfExpr:
 		return c.compileSelf()
-	case *IdentExpr:
+	case *parser.IdentExpr:
 		return c.compileIdent(n)
-	case *FuncCall:
+	case *parser.FuncCall:
 		return c.compileFuncCall(ctx, n)
-	case *FieldAccess:
+	case *parser.FieldAccess:
 		return nil, fmt.Errorf("field access requires a source (use self.field or pipe)")
 	default:
 		return nil, fmt.Errorf("unexpected node type %T at top level", node)
@@ -51,7 +52,7 @@ func (c *Compiler) compileNode(ctx context.Context, node Node) (*Plan, error) {
 }
 
 // compilePipe walks pipe steps left-to-right, accumulating state.
-func (c *Compiler) compilePipe(ctx context.Context, pipe *PipeExpr) (*Plan, error) {
+func (c *Compiler) compilePipe(ctx context.Context, pipe *parser.PipeExpr) (*Plan, error) {
 	if len(pipe.Steps) == 0 {
 		return nil, fmt.Errorf("empty pipe expression")
 	}
@@ -72,19 +73,19 @@ func (c *Compiler) compilePipe(ctx context.Context, pipe *PipeExpr) (*Plan, erro
 }
 
 // applyStep applies a single pipe step to the current plan.
-func (c *Compiler) applyStep(ctx context.Context, plan *Plan, step Node) (*Plan, error) {
+func (c *Compiler) applyStep(ctx context.Context, plan *Plan, step parser.Node) (*Plan, error) {
 	switch s := step.(type) {
-	case *FieldAccess:
+	case *parser.FieldAccess:
 		return c.applyFieldAccess(plan, s)
-	case *WhereExpr:
+	case *parser.WhereExpr:
 		return c.applyWhere(ctx, plan, s)
-	case *SortExpr:
+	case *parser.SortExpr:
 		return c.applySort(plan, s)
-	case *PickExpr:
+	case *parser.PickExpr:
 		return c.applyPick(plan, s)
-	case *AggExpr:
+	case *parser.AggExpr:
 		return c.applyAgg(plan, s)
-	case *FuncCall:
+	case *parser.FuncCall:
 		return c.applyFuncInPipe(ctx, plan, s)
 	default:
 		return nil, fmt.Errorf("unexpected pipe step type %T", step)
@@ -104,7 +105,7 @@ func (c *Compiler) compileSelf() (*Plan, error) {
 }
 
 // compileIdent: `employees` → full scan.
-func (c *Compiler) compileIdent(n *IdentExpr) (*Plan, error) {
+func (c *Compiler) compileIdent(n *parser.IdentExpr) (*Plan, error) {
 	switch n.Name {
 	case "employees":
 		return &Plan{Kind: PlanList}, nil
@@ -115,7 +116,7 @@ func (c *Compiler) compileIdent(n *IdentExpr) (*Plan, error) {
 
 // --- Step application ---
 
-func (c *Compiler) applyFieldAccess(plan *Plan, fa *FieldAccess) (*Plan, error) {
+func (c *Compiler) applyFieldAccess(plan *Plan, fa *parser.FieldAccess) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("field access requires a list, got %v", plan.Kind)
 	}
@@ -136,7 +137,7 @@ func (c *Compiler) applyFieldAccess(plan *Plan, fa *FieldAccess) (*Plan, error) 
 	return plan, nil
 }
 
-func (c *Compiler) applyWhere(ctx context.Context, plan *Plan, w *WhereExpr) (*Plan, error) {
+func (c *Compiler) applyWhere(ctx context.Context, plan *Plan, w *parser.WhereExpr) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("where requires a list source")
 	}
@@ -150,7 +151,7 @@ func (c *Compiler) applyWhere(ctx context.Context, plan *Plan, w *WhereExpr) (*P
 	return plan, nil
 }
 
-func (c *Compiler) applySort(plan *Plan, s *SortExpr) (*Plan, error) {
+func (c *Compiler) applySort(plan *Plan, s *parser.SortExpr) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("sort_by requires a list source")
 	}
@@ -167,7 +168,7 @@ func (c *Compiler) applySort(plan *Plan, s *SortExpr) (*Plan, error) {
 	return plan, nil
 }
 
-func (c *Compiler) applyPick(plan *Plan, p *PickExpr) (*Plan, error) {
+func (c *Compiler) applyPick(plan *Plan, p *parser.PickExpr) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("%s requires a list source", p.Op)
 	}
@@ -192,7 +193,7 @@ func (c *Compiler) applyPick(plan *Plan, p *PickExpr) (*Plan, error) {
 	return plan, nil
 }
 
-func (c *Compiler) applyAgg(plan *Plan, a *AggExpr) (*Plan, error) {
+func (c *Compiler) applyAgg(plan *Plan, a *parser.AggExpr) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("%s requires a list source", a.Op)
 	}
@@ -202,18 +203,3 @@ func (c *Compiler) applyAgg(plan *Plan, a *AggExpr) (*Plan, error) {
 	return plan, nil
 }
 
-func (c *Compiler) applyFuncInPipe(_ context.Context, plan *Plan, fn *FuncCall) (*Plan, error) {
-	switch fn.Name {
-	case "contains", "starts_with", "ends_with":
-		return nil, fmt.Errorf("%s() is only supported inside where() conditions", fn.Name)
-	case "unique", "upper", "lower", "length":
-		if fn.Name == "length" {
-			plan.Kind = PlanScalar
-			plan.AggFunc = "count"
-			return plan, nil
-		}
-		return plan, nil
-	default:
-		return nil, fmt.Errorf("function %q is not supported in pipe position", fn.Name)
-	}
-}

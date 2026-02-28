@@ -1,4 +1,4 @@
-package hrql
+package parser
 
 // Node is the interface all AST nodes implement.
 type Node interface {
@@ -29,6 +29,7 @@ type IdentExpr struct {
 
 // FuncCall represents a function call: name(arg1, arg2, ...)
 type FuncCall struct {
+	Func *FuncDef // set by parser from function registry; nil for unknown
 	Name string
 	Args []Node
 }

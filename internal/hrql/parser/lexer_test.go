@@ -1,4 +1,4 @@
-package hrql
+package parser
 
 import (
 	"testing"

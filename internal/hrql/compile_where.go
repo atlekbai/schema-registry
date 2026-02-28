@@ -4,18 +4,19 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
 // --- Where condition compilation ---
 
-func (c *Compiler) compileWhereCond(ctx context.Context, node Node) (Condition, error) {
+func (c *Compiler) compileWhereCond(ctx context.Context, node parser.Node) (Condition, error) {
 	switch n := node.(type) {
-	case *BinaryOp:
+	case *parser.BinaryOp:
 		return c.compileWhereOp(ctx, n)
-	case *FuncCall:
+	case *parser.FuncCall:
 		return c.compileWhereFuncCall(ctx, n)
-	case *PipeExpr:
+	case *parser.PipeExpr:
 		if cond, ok := c.tryCompileStringOp(n); ok {
 			return cond, nil
 		}
@@ -25,7 +26,7 @@ func (c *Compiler) compileWhereCond(ctx context.Context, node Node) (Condition, 
 	}
 }
 
-func (c *Compiler) compileWhereOp(ctx context.Context, op *BinaryOp) (Condition, error) {
+func (c *Compiler) compileWhereOp(ctx context.Context, op *parser.BinaryOp) (Condition, error) {
 	switch op.Op {
 	case "and":
 		left, err := c.compileWhereCond(ctx, op.Left)
@@ -57,7 +58,7 @@ func (c *Compiler) compileWhereOp(ctx context.Context, op *BinaryOp) (Condition,
 	}
 }
 
-func (c *Compiler) compileComparison(ctx context.Context, op *BinaryOp) (Condition, error) {
+func (c *Compiler) compileComparison(ctx context.Context, op *parser.BinaryOp) (Condition, error) {
 	left, err := c.compileWhereValue(ctx, op.Left)
 	if err != nil {
 		return nil, fmt.Errorf("where left: %w", err)
@@ -98,21 +99,21 @@ func (c *Compiler) compileComparison(ctx context.Context, op *BinaryOp) (Conditi
 
 // compileWhereValue compiles a value expression inside a where condition.
 // Returns a fieldRef, literalVal, or subqueryVal.
-func (c *Compiler) compileWhereValue(ctx context.Context, node Node) (any, error) {
+func (c *Compiler) compileWhereValue(ctx context.Context, node parser.Node) (any, error) {
 	switch n := node.(type) {
-	case *FieldAccess:
+	case *parser.FieldAccess:
 		return c.resolveFieldRef(n)
-	case *DotExpr:
+	case *parser.DotExpr:
 		return nil, fmt.Errorf("bare '.' in where condition; use '.field' to access a field")
-	case *Literal:
+	case *parser.Literal:
 		return literalVal(n.Value), nil
-	case *SelfExpr:
+	case *parser.SelfExpr:
 		return literalVal(c.selfID), nil
-	case *PipeExpr:
+	case *parser.PipeExpr:
 		return c.compileSelfFieldLookup(ctx, n)
-	case *FuncCall:
+	case *parser.FuncCall:
 		return c.compileWhereFuncValue(ctx, n)
-	case *UnaryMinus:
+	case *parser.UnaryMinus:
 		inner, err := c.compileWhereValue(ctx, n.Expr)
 		if err != nil {
 			return nil, err
@@ -127,7 +128,7 @@ func (c *Compiler) compileWhereValue(ctx context.Context, node Node) (any, error
 }
 
 // resolveFieldRef validates a field access chain and returns a fieldRef.
-func (c *Compiler) resolveFieldRef(fa *FieldAccess) (any, error) {
+func (c *Compiler) resolveFieldRef(fa *parser.FieldAccess) (any, error) {
 	if len(fa.Chain) == 0 {
 		return nil, fmt.Errorf("empty field access in where")
 	}
@@ -174,12 +175,12 @@ func (c *Compiler) resolveFieldRef(fa *FieldAccess) (any, error) {
 }
 
 // compileSelfFieldLookup resolves self.field to a literal value at compile time.
-func (c *Compiler) compileSelfFieldLookup(ctx context.Context, pipe *PipeExpr) (any, error) {
+func (c *Compiler) compileSelfFieldLookup(ctx context.Context, pipe *parser.PipeExpr) (any, error) {
 	if len(pipe.Steps) != 2 {
 		return nil, fmt.Errorf("expected self.field, got complex pipe in where value")
 	}
-	_, isSelf := pipe.Steps[0].(*SelfExpr)
-	fa, isFA := pipe.Steps[1].(*FieldAccess)
+	_, isSelf := pipe.Steps[0].(*parser.SelfExpr)
+	fa, isFA := pipe.Steps[1].(*parser.FieldAccess)
 	if !isSelf || !isFA {
 		return c.compileWhereSubqueryValue(ctx, pipe)
 	}
@@ -205,7 +206,7 @@ func (c *Compiler) compileSelfFieldLookup(ctx context.Context, pipe *PipeExpr) (
 }
 
 // compileWhereSubqueryValue compiles a pipe expression in where value position as a scalar subquery.
-func (c *Compiler) compileWhereSubqueryValue(ctx context.Context, pipe *PipeExpr) (any, error) {
+func (c *Compiler) compileWhereSubqueryValue(ctx context.Context, pipe *parser.PipeExpr) (any, error) {
 	cond, err := c.compileWhereSubquery(ctx, pipe)
 	if err != nil {
 		return nil, err
@@ -218,12 +219,12 @@ func (c *Compiler) compileWhereSubqueryValue(ctx context.Context, pipe *PipeExpr
 }
 
 // compileWhereSubquery compiles a pipe expression as a scalar subquery inside a where condition.
-func (c *Compiler) compileWhereSubquery(_ context.Context, pipe *PipeExpr) (Condition, error) {
+func (c *Compiler) compileWhereSubquery(_ context.Context, pipe *parser.PipeExpr) (Condition, error) {
 	if len(pipe.Steps) < 2 {
 		return nil, fmt.Errorf("subquery in where requires at least 2 pipe steps (source | aggregate)")
 	}
 
-	fn, ok := pipe.Steps[0].(*FuncCall)
+	fn, ok := pipe.Steps[0].(*parser.FuncCall)
 	if !ok {
 		return nil, fmt.Errorf("subquery source must be a function call, got %T", pipe.Steps[0])
 	}
@@ -231,9 +232,9 @@ func (c *Compiler) compileWhereSubquery(_ context.Context, pipe *PipeExpr) (Cond
 	aggOp := ""
 	for _, step := range pipe.Steps[1:] {
 		switch s := step.(type) {
-		case *AggExpr:
+		case *parser.AggExpr:
 			aggOp = s.Op
-		case *FieldAccess:
+		case *parser.FieldAccess:
 			// Field access before aggregation — ignore for count.
 		default:
 			return nil, fmt.Errorf("unsupported step %T in where subquery", step)
@@ -257,13 +258,13 @@ func (c *Compiler) compileWhereSubquery(_ context.Context, pipe *PipeExpr) (Cond
 }
 
 // compileWhereFuncCall compiles a function call as a boolean condition.
-func (c *Compiler) compileWhereFuncCall(ctx context.Context, fn *FuncCall) (Condition, error) {
+func (c *Compiler) compileWhereFuncCall(ctx context.Context, fn *parser.FuncCall) (Condition, error) {
 	switch fn.Name {
 	case "reports_to":
 		if len(fn.Args) != 2 {
 			return nil, fmt.Errorf("reports_to() requires 2 arguments")
 		}
-		if _, ok := fn.Args[0].(*DotExpr); !ok {
+		if _, ok := fn.Args[0].(*parser.DotExpr); !ok {
 			return nil, fmt.Errorf("reports_to() in where expects '.' as first argument")
 		}
 
@@ -285,21 +286,21 @@ func (c *Compiler) compileWhereFuncCall(ctx context.Context, fn *FuncCall) (Cond
 }
 
 // tryCompileStringOp checks if a PipeExpr is a string operation pattern like `.field | contains("str")`.
-func (c *Compiler) tryCompileStringOp(pipe *PipeExpr) (Condition, bool) {
+func (c *Compiler) tryCompileStringOp(pipe *parser.PipeExpr) (Condition, bool) {
 	if len(pipe.Steps) != 2 {
 		return nil, false
 	}
 
-	fa, isFA := pipe.Steps[0].(*FieldAccess)
-	fn, isFn := pipe.Steps[1].(*FuncCall)
+	fa, isFA := pipe.Steps[0].(*parser.FieldAccess)
+	fn, isFn := pipe.Steps[1].(*parser.FuncCall)
 	if !isFA || !isFn {
 		return nil, false
 	}
 	if len(fn.Args) != 1 {
 		return nil, false
 	}
-	lit, isLit := fn.Args[0].(*Literal)
-	if !isLit || lit.Kind != TokString {
+	lit, isLit := fn.Args[0].(*parser.Literal)
+	if !isLit || lit.Kind != parser.TokString {
 		return nil, false
 	}
 
@@ -319,7 +320,7 @@ func (c *Compiler) tryCompileStringOp(pipe *PipeExpr) (Condition, bool) {
 }
 
 // compileWhereFuncValue compiles a function in value position inside where.
-func (c *Compiler) compileWhereFuncValue(_ context.Context, fn *FuncCall) (any, error) {
+func (c *Compiler) compileWhereFuncValue(_ context.Context, fn *parser.FuncCall) (any, error) {
 	switch fn.Name {
 	case "contains":
 		return nil, fmt.Errorf("contains() should be used with pipe syntax: .field | contains(\"str\")")
@@ -330,9 +331,11 @@ func (c *Compiler) compileWhereFuncValue(_ context.Context, fn *FuncCall) (any, 
 
 // --- Internal value types for where compilation ---
 
-type fieldRef struct{ chain []string } // a validated field reference (API names)
-type literalVal string                 // a literal value
-type subqueryVal struct{ cond SubqueryAgg }
+type (
+	fieldRef    struct{ chain []string } // a validated field reference (API names)
+	literalVal  string                   // a literal value
+	subqueryVal struct{ cond SubqueryAgg }
+)
 
 func reverseOp(op string) string {
 	switch op {

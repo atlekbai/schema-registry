@@ -1,4 +1,4 @@
-package query
+package pg
 
 import (
 	"fmt"
@@ -8,8 +8,6 @@ import (
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
-
-const qAlias = "_e"
 
 // Builder generates SQL queries for a given object definition.
 type Builder interface {
@@ -59,10 +57,7 @@ func (b *QueryBuilder) BuildList(params *QueryParams) (string, []any, error) {
 	}
 
 	qb = addLateralJoins(qb, params)
-	for _, cond := range buildFilters(b.obj, params) {
-		qb = qb.Where(cond)
-	}
-	for _, cond := range params.ExtraConditions {
+	for _, cond := range params.SQLConditions {
 		qb = qb.Where(cond)
 	}
 	for _, clause := range buildOrderBy(b.obj, params) {
@@ -101,10 +96,7 @@ func (b *QueryBuilder) BuildCount(params *QueryParams) (string, []any, error) {
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	for _, cond := range buildFilters(b.obj, params) {
-		qb = qb.Where(cond)
-	}
-	for _, cond := range params.ExtraConditions {
+	for _, cond := range params.SQLConditions {
 		qb = qb.Where(cond)
 	}
 	return qb.ToSql()
@@ -116,10 +108,7 @@ func (b *QueryBuilder) BuildEstimate(params *QueryParams) (string, []any, error)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
-	for _, cond := range buildFilters(b.obj, params) {
-		qb = qb.Where(cond)
-	}
-	for _, cond := range params.ExtraConditions {
+	for _, cond := range params.SQLConditions {
 		qb = qb.Where(cond)
 	}
 	return qb.ToSql()
@@ -181,21 +170,11 @@ func resolveFields(obj *schema.ObjectDef, params *QueryParams, expandSet map[str
 func addLateralJoins(qb sq.SelectBuilder, params *QueryParams) sq.SelectBuilder {
 	for i := range params.ExpandPlans {
 		ep := &params.ExpandPlans[i]
-		outerRef := fkRef(qAlias, ep.Field)
+		outerRef := FKRef(qAlias, ep.Field)
 		joinSQL, joinArgs := buildLateral(ep, outerRef, "", 0)
 		qb = qb.LeftJoin(joinSQL, joinArgs...)
 	}
 	return qb
-}
-
-func buildFilters(obj *schema.ObjectDef, params *QueryParams) []sq.Sqlizer {
-	var conds []sq.Sqlizer
-	for _, f := range params.Filters {
-		if fd := obj.FieldsByAPIName[f.FieldAPIName]; fd != nil {
-			conds = append(conds, filterCondition(FilterExpr(qAlias, fd), f))
-		}
-	}
-	return conds
 }
 
 func buildOrderBy(obj *schema.ObjectDef, params *QueryParams) []string {

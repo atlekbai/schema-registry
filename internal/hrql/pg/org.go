@@ -7,12 +7,11 @@ import (
 	sq "github.com/Masterminds/squirrel"
 
 	"github.com/atlekbai/schema_registry/internal/hrql"
-	"github.com/atlekbai/schema_registry/internal/query"
 )
 
 // ChainUp returns a condition matching the ancestor at exactly `steps` levels above target.
 func ChainUp(targetPath string, steps int) sq.Sqlizer {
-	col := fmt.Sprintf(`%s."manager_path"`, query.QI(query.Alias()))
+	col := fmt.Sprintf(`%s."manager_path"`, QI(Alias()))
 	return sq.Expr(
 		fmt.Sprintf(`%s = subpath(?::ltree, 0, nlevel(?::ltree) - ?)`, col),
 		targetPath, targetPath, steps,
@@ -21,7 +20,7 @@ func ChainUp(targetPath string, steps int) sq.Sqlizer {
 
 // ChainDown returns a condition matching descendants at exactly `depth` levels below target.
 func ChainDown(targetPath string, depth int) sq.Sqlizer {
-	col := fmt.Sprintf(`%s."manager_path"`, query.QI(query.Alias()))
+	col := fmt.Sprintf(`%s."manager_path"`, QI(Alias()))
 	return sq.Expr(
 		fmt.Sprintf(`%s <@ ?::ltree AND nlevel(%s) = nlevel(?::ltree) + ?`, col, col),
 		targetPath, targetPath, depth,
@@ -30,7 +29,7 @@ func ChainDown(targetPath string, depth int) sq.Sqlizer {
 
 // Subtree returns a condition matching all descendants (any depth), excluding the target itself.
 func Subtree(targetPath string) sq.Sqlizer {
-	col := fmt.Sprintf(`%s."manager_path"`, query.QI(query.Alias()))
+	col := fmt.Sprintf(`%s."manager_path"`, QI(Alias()))
 	return sq.Expr(
 		fmt.Sprintf(`%s <@ ?::ltree AND %s != ?::ltree`, col, col),
 		targetPath, targetPath,
@@ -39,13 +38,13 @@ func Subtree(targetPath string) sq.Sqlizer {
 
 // ExcludeSelf returns id != selfID.
 func ExcludeSelf(selfID string) sq.Sqlizer {
-	return sq.NotEq{fmt.Sprintf(`%s."id"`, query.QI(query.Alias())): selfID}
+	return sq.NotEq{fmt.Sprintf(`%s."id"`, QI(Alias())): selfID}
 }
 
 // SameField returns: column = value AND id != selfID.
 func SameField(column, value, selfID string) sq.Sqlizer {
 	return sq.And{
-		sq.Eq{fmt.Sprintf(`%s.%s`, query.QI(query.Alias()), query.QI(column)): value},
+		sq.Eq{fmt.Sprintf(`%s.%s`, QI(Alias()), QI(column)): value},
 		ExcludeSelf(selfID),
 	}
 }
@@ -54,27 +53,24 @@ func SameField(column, value, selfID string) sq.Sqlizer {
 func ChainAll(path string) sq.Sqlizer {
 	labels := strings.Split(path, ".")
 	if len(labels) <= 1 {
-		return sq.Eq{fmt.Sprintf(`%s."id"`, query.QI(query.Alias())): nil}
+		return sq.Eq{fmt.Sprintf(`%s."id"`, QI(Alias())): nil}
 	}
 	ancestors := labels[:len(labels)-1]
 	uuids := make([]string, len(ancestors))
 	for i, label := range ancestors {
 		uuids[i] = hrql.LtreeLabelToUUID(label)
 	}
-	col := fmt.Sprintf(`%s."id"`, query.QI(query.Alias()))
+	col := fmt.Sprintf(`%s."id"`, QI(Alias()))
 	return sq.Eq{col: uuids}
 }
 
 // ReportsToWhere generates a WHERE condition for reports_to(., target) inside where.
+// Semantically identical to Subtree -- checks if current row is a descendant of target.
 func ReportsToWhere(targetPath string) sq.Sqlizer {
-	col := fmt.Sprintf(`%s."manager_path"`, query.QI(query.Alias()))
-	return sq.Expr(
-		fmt.Sprintf(`%s <@ ?::ltree AND %s != ?::ltree`, col, col),
-		targetPath, targetPath,
-	)
+	return Subtree(targetPath)
 }
 
 // NullCondition returns an always-false condition.
 func NullCondition() sq.Sqlizer {
-	return sq.Eq{fmt.Sprintf(`%s."id"`, query.QI(query.Alias())): nil}
+	return sq.Eq{fmt.Sprintf(`%s."id"`, QI(Alias())): nil}
 }

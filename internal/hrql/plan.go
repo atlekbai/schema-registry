@@ -136,6 +136,33 @@ type SubqueryAgg struct {
 
 func (SubqueryAgg) condition() {}
 
+// --- REST API filter conditions ---
+
+// InFilter: field IN (values)
+type InFilter struct {
+	Field  []string
+	Values []string
+}
+
+func (InFilter) condition() {}
+
+// IsNullFilter: field IS NULL / IS NOT NULL
+type IsNullFilter struct {
+	Field  []string
+	IsNull bool
+}
+
+func (IsNullFilter) condition() {}
+
+// LikeFilter: field LIKE/ILIKE pattern (raw SQL LIKE syntax from REST API)
+type LikeFilter struct {
+	Field           []string
+	Pattern         string
+	CaseInsensitive bool
+}
+
+func (LikeFilter) condition() {}
+
 // --- Helpers ---
 
 func joinChain(chain []string) string {

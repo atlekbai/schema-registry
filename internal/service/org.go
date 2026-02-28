@@ -15,7 +15,7 @@ import (
 	"github.com/atlekbai/schema_registry/gen/registry/v1/registryv1connect"
 	"github.com/atlekbai/schema_registry/internal/hrql"
 	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
-	"github.com/atlekbai/schema_registry/internal/query"
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
@@ -36,7 +36,7 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	msg := req.Msg
 
 	// Parse HRQL expression.
-	ast, err := hrql.Parse(msg.Query)
+	ast, err := parser.Parse(msg.Query)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -87,14 +87,21 @@ func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *regi
 		input.Limit = int32(sqlResult.Limit)
 	}
 
-	params, err := query.ParseParams(obj, input)
+	params, err := hrqlpg.ParseParams(obj, input)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	params.ExtraConditions = sqlResult.Conditions
-	params.ExpandPlans = query.ResolveExpands(params.Expand, obj, s.cache)
 
-	builder := query.NewBuilder(obj)
+	// Merge HRQL plan conditions with REST conditions.
+	params.Conditions = append(params.Conditions, plan.Conditions...)
+	params.SQLConditions, err = hrqlpg.TranslateConditions(params.Conditions, obj, s.cache)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+
+	params.ExpandPlans = hrqlpg.ResolveExpands(params.Expand, obj, s.cache)
+
+	builder := hrqlpg.NewBuilder(obj)
 	g, gctx := errgroup.WithContext(ctx)
 
 	var totalCount int64
@@ -128,7 +135,7 @@ func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *regi
 	if len(rows) > params.Limit {
 		rows = rows[:params.Limit]
 		last := rows[params.Limit-1]
-		encoded := query.EncodeCursor(last.CursorID, last.CursorVal)
+		encoded := hrqlpg.EncodeCursor(last.CursorID, last.CursorVal)
 		resp.NextCursor = &encoded
 	}
 
@@ -176,10 +183,10 @@ func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.R
 	return connect.NewResponse(&registryv1.QueryResponse{Scalar: &scalar}), nil
 }
 
-// ── helpers ──────────────────────────────────────────────────────────
+// -- helpers --
 
-func listInputFromMsg(msg *registryv1.QueryRequest) query.ParamsInput {
-	return query.ParamsInput{
+func listInputFromMsg(msg *registryv1.QueryRequest) hrqlpg.ParamsInput {
+	return hrqlpg.ParamsInput{
 		Select: msg.Select,
 		Expand: msg.Expand,
 		Order:  msg.Order,
@@ -196,7 +203,7 @@ func (s *OrgService) employeesObj() (*schema.ObjectDef, error) {
 	return obj, nil
 }
 
-func (s *OrgService) resolveCount(ctx context.Context, builder query.Builder, params *query.QueryParams) (int64, error) {
+func (s *OrgService) resolveCount(ctx context.Context, builder hrqlpg.Builder, params *hrqlpg.QueryParams) (int64, error) {
 	estSQL, estArgs, err := builder.BuildEstimate(params)
 	if err != nil {
 		return 0, err

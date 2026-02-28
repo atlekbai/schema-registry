@@ -3,6 +3,7 @@ package hrql
 import (
 	"testing"
 
+	"github.com/atlekbai/schema_registry/internal/hrql/parser"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/google/uuid"
 )
@@ -182,9 +183,9 @@ func TestTryCompileStringOp(t *testing.T) {
 		{"ends_with", "ends_with", "test", "ends_with"},
 	}
 	for _, tt := range tests {
-		pipe := &PipeExpr{Steps: []Node{
-			&FieldAccess{Chain: []string{"employment_type"}},
-			&FuncCall{Name: tt.fnName, Args: []Node{&Literal{Kind: TokString, Value: tt.arg}}},
+		pipe := &parser.PipeExpr{Steps: []parser.Node{
+			&parser.FieldAccess{Chain: []string{"employment_type"}},
+			&parser.FuncCall{Name: tt.fnName, Args: []parser.Node{&parser.Literal{Kind: parser.TokString, Value: tt.arg}}},
 		}}
 		cond, ok := c.tryCompileStringOp(pipe)
 		if !ok {
@@ -212,9 +213,9 @@ func TestTryCompileStringOpNoMatch(t *testing.T) {
 	obj := testEmployeesObj()
 	c := &Compiler{empObj: obj}
 
-	pipe := &PipeExpr{Steps: []Node{
-		&FieldAccess{Chain: []string{"employment_type"}},
-		&AggExpr{Op: "count"},
+	pipe := &parser.PipeExpr{Steps: []parser.Node{
+		&parser.FieldAccess{Chain: []string{"employment_type"}},
+		&parser.AggExpr{Op: "count"},
 	}}
 	_, ok := c.tryCompileStringOp(pipe)
 	if ok {
