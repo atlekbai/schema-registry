@@ -41,6 +41,12 @@ func (c *Compiler) compileNode(node parser.Node) (*Plan, error) {
 		return c.compileIdent(n)
 	case *parser.FuncCall:
 		return c.compileFuncCall(n)
+	case *parser.BinaryOp, *parser.Literal, *parser.UnaryMinus:
+		expr, err := c.compileScalarExpr(node)
+		if err != nil {
+			return nil, err
+		}
+		return &Plan{Kind: PlanScalar, ScalarExpr: expr}, nil
 	case *parser.FieldAccess:
 		return nil, fmt.Errorf("field access requires a source (use self.field or pipe)")
 	default:
@@ -198,4 +204,54 @@ func (c *Compiler) applyAgg(plan *Plan, a *parser.AggExpr) (*Plan, error) {
 	plan.Kind = PlanScalar
 	plan.AggFunc = a.Op
 	return plan, nil
+}
+
+// --- Arithmetic expression compilation ---
+
+func isArithOp(op string) bool {
+	return op == "+" || op == "-" || op == "*" || op == "/"
+}
+
+// compileScalarExpr compiles a node into a ScalarExpr for arithmetic contexts.
+// Handles literals, unary minus, arithmetic BinaryOp, and falls back to compileNode
+// for pipe expressions / function calls that produce PlanScalar.
+func (c *Compiler) compileScalarExpr(node parser.Node) (ScalarExpr, error) {
+	switch n := node.(type) {
+	case *parser.Literal:
+		if n.Kind == parser.TokNumber {
+			return ScalarLiteral{Value: n.Value}, nil
+		}
+		return nil, fmt.Errorf("expected number in arithmetic, got %s", n.Kind)
+	case *parser.UnaryMinus:
+		inner, err := c.compileScalarExpr(n.Expr)
+		if err != nil {
+			return nil, err
+		}
+		if lit, ok := inner.(ScalarLiteral); ok {
+			return ScalarLiteral{Value: "-" + lit.Value}, nil
+		}
+		return ScalarArith{Op: "-", Left: ScalarLiteral{Value: "0"}, Right: inner}, nil
+	case *parser.BinaryOp:
+		if isArithOp(n.Op) {
+			left, err := c.compileScalarExpr(n.Left)
+			if err != nil {
+				return nil, err
+			}
+			right, err := c.compileScalarExpr(n.Right)
+			if err != nil {
+				return nil, err
+			}
+			return ScalarArith{Op: n.Op, Left: left, Right: right}, nil
+		}
+		return nil, fmt.Errorf("unsupported operator %q in arithmetic expression", n.Op)
+	default:
+		plan, err := c.compileNode(node)
+		if err != nil {
+			return nil, err
+		}
+		if plan.Kind != PlanScalar {
+			return nil, fmt.Errorf("expected scalar expression, got %v", plan.Kind)
+		}
+		return ScalarSubquery{Plan: plan}, nil
+	}
 }

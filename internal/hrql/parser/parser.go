@@ -28,9 +28,9 @@ type parser struct {
 	input string
 }
 
-// parsePipeExpr: primary { "|" pipeStep }
+// parsePipeExpr: arithExpr { "|" pipeStep }
 func (p *parser) parsePipeExpr() (Node, error) {
-	first, err := p.parsePrimary()
+	first, err := p.parseArithExpr()
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +79,54 @@ func (p *parser) parsePipeExpr() (Node, error) {
 		return steps[0], nil
 	}
 	return &PipeExpr{Steps: steps}, nil
+}
+
+// parseArithExpr: arithTerm { ("+" | "-") arithTerm }
+func (p *parser) parseArithExpr() (Node, error) {
+	left, err := p.parseArithTerm()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		tok, err := p.peek()
+		if err != nil {
+			return nil, err
+		}
+		if tok.Kind != TokPlus && tok.Kind != TokMinus {
+			break
+		}
+		p.advance()
+		right, err := p.parseArithTerm()
+		if err != nil {
+			return nil, err
+		}
+		left = &BinaryOp{Op: tok.Lit, Left: left, Right: right}
+	}
+	return left, nil
+}
+
+// parseArithTerm: primary { ("*" | "/") primary }
+func (p *parser) parseArithTerm() (Node, error) {
+	left, err := p.parsePrimary()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		tok, err := p.peek()
+		if err != nil {
+			return nil, err
+		}
+		if tok.Kind != TokStar && tok.Kind != TokSlash {
+			break
+		}
+		p.advance()
+		right, err := p.parsePrimary()
+		if err != nil {
+			return nil, err
+		}
+		left = &BinaryOp{Op: tok.Lit, Left: left, Right: right}
+	}
+	return left, nil
 }
 
 // parsePipeStep handles the right side of a pipe operator.

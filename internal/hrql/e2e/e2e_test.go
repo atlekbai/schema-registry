@@ -727,6 +727,76 @@ func TestUniquePassthrough(t *testing.T) {
 	}
 }
 
+// --- Test: arithmetic expressions ---
+
+func TestArithPureLiterals(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `1 + 2`, "")
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+	if plan.ScalarExpr == nil {
+		t.Fatal("expected ScalarExpr to be set")
+	}
+
+	assertContains(t, result.AggSQL, `SELECT`)
+	assertContains(t, result.AggSQL, `::numeric`)
+	assertContains(t, result.AggSQL, `+`)
+}
+
+func TestArithLiteralPlusCount(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `1 + (employees | count)`, "")
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+
+	assertContains(t, result.AggSQL, `SELECT`)
+	assertContains(t, result.AggSQL, `::numeric`)
+	assertContains(t, result.AggSQL, `+`)
+	assertContains(t, result.AggSQL, `count(*)`)
+	assertContains(t, result.AggSQL, `"core"."employees"`)
+}
+
+func TestArithCountTimesLiteral(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `(employees | count) * 2`, "")
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+
+	assertContains(t, result.AggSQL, `*`)
+	assertContains(t, result.AggSQL, `count(*)`)
+	assertContains(t, result.AggSQL, `::numeric`)
+}
+
+func TestArithReportsCount(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `1 + (reports(self, 0) | count)`, selfUUID)
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+
+	assertContains(t, result.AggSQL, `SELECT`)
+	assertContains(t, result.AggSQL, `+`)
+	assertContains(t, result.AggSQL, `count(*)`)
+	assertContains(t, result.AggSQL, `"_e"."manager_path"`)
+}
+
+func TestArithTwoSubqueries(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `(employees | count) + (reports(self, 0) | count)`, selfUUID)
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+
+	assertContains(t, result.AggSQL, `+`)
+	// Both subqueries should have count(*)
+	if strings.Count(result.AggSQL, `count(*)`) != 2 {
+		t.Errorf("expected 2 count(*) in SQL, got: %s", result.AggSQL)
+	}
+}
+
 // --- Test: literal reversed comparison ---
 
 func TestReversedComparison(t *testing.T) {

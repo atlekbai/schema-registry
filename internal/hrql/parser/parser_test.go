@@ -531,6 +531,83 @@ func TestParseAllComparisonOps(t *testing.T) {
 	}
 }
 
+// --- Arithmetic expressions ---
+
+func TestParseArithSimple(t *testing.T) {
+	node := mustParse(t, "1 + 2")
+	op, ok := node.(*BinaryOp)
+	if !ok {
+		t.Fatalf("expected *BinaryOp, got %T", node)
+	}
+	if op.Op != "+" {
+		t.Fatalf("expected +, got %q", op.Op)
+	}
+	left := op.Left.(*Literal)
+	right := op.Right.(*Literal)
+	if left.Value != "1" || right.Value != "2" {
+		t.Fatalf("expected 1 + 2, got %s + %s", left.Value, right.Value)
+	}
+}
+
+func TestParseArithPrecedence(t *testing.T) {
+	// 2 * 3 + 1 should parse as (2 * 3) + 1
+	node := mustParse(t, "2 * 3 + 1")
+	top := node.(*BinaryOp)
+	if top.Op != "+" {
+		t.Fatalf("top-level should be +, got %q", top.Op)
+	}
+	left := top.Left.(*BinaryOp)
+	if left.Op != "*" {
+		t.Fatalf("left should be *, got %q", left.Op)
+	}
+}
+
+func TestParseArithWithPipe(t *testing.T) {
+	// 1 + (employees | count) — arithmetic with pipe subquery
+	node := mustParse(t, "1 + (employees | count)")
+	op := node.(*BinaryOp)
+	if op.Op != "+" {
+		t.Fatalf("expected +, got %q", op.Op)
+	}
+	if _, ok := op.Left.(*Literal); !ok {
+		t.Fatalf("left: expected *Literal, got %T", op.Left)
+	}
+	pipe, ok := op.Right.(*PipeExpr)
+	if !ok {
+		t.Fatalf("right: expected *PipeExpr, got %T", op.Right)
+	}
+	if len(pipe.Steps) != 2 {
+		t.Fatalf("expected 2 pipe steps, got %d", len(pipe.Steps))
+	}
+}
+
+func TestParseArithMultiply(t *testing.T) {
+	node := mustParse(t, "(employees | count) * 2")
+	op := node.(*BinaryOp)
+	if op.Op != "*" {
+		t.Fatalf("expected *, got %q", op.Op)
+	}
+	if _, ok := op.Left.(*PipeExpr); !ok {
+		t.Fatalf("left: expected *PipeExpr, got %T", op.Left)
+	}
+	if lit, ok := op.Right.(*Literal); !ok || lit.Value != "2" {
+		t.Fatalf("right: expected literal 2, got %T %v", op.Right, op.Right)
+	}
+}
+
+func TestParseArithNested(t *testing.T) {
+	// 1 + 2 * 3 → 1 + (2 * 3)
+	node := mustParse(t, "1 + 2 * 3")
+	top := node.(*BinaryOp)
+	if top.Op != "+" {
+		t.Fatalf("top should be +, got %q", top.Op)
+	}
+	right := top.Right.(*BinaryOp)
+	if right.Op != "*" {
+		t.Fatalf("right should be *, got %q", right.Op)
+	}
+}
+
 // --- Error cases ---
 
 func TestParseErrorTrailingTokens(t *testing.T) {

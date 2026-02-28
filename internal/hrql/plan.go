@@ -24,8 +24,9 @@ type Plan struct {
 	PickN      int    // for nth (1-indexed)
 
 	// PlanScalar fields
-	AggFunc  string // "count", "sum", "avg", "min", "max"
-	AggField string // field API name, "" for count(*)
+	AggFunc    string     // "count", "sum", "avg", "min", "max"
+	AggField   string     // field API name, "" for count(*)
+	ScalarExpr ScalarExpr // if set, arithmetic expression tree (overrides AggFunc/AggField)
 
 	// PlanBoolean fields
 	BoolCondition Condition // deferred to SQL execution
@@ -185,6 +186,31 @@ type LikeFilter struct {
 }
 
 func (LikeFilter) condition() {}
+
+// --- Scalar expression types (arithmetic) ---
+
+// ScalarExpr represents an expression that produces a single numeric value.
+type ScalarExpr interface {
+	scalarExpr()
+}
+
+// ScalarLiteral is a numeric literal.
+type ScalarLiteral struct{ Value string }
+
+func (ScalarLiteral) scalarExpr() {}
+
+// ScalarArith is a binary arithmetic operation on two scalar expressions.
+type ScalarArith struct {
+	Op          string // "+", "-", "*", "/"
+	Left, Right ScalarExpr
+}
+
+func (ScalarArith) scalarExpr() {}
+
+// ScalarSubquery is a sub-plan that produces a scalar (e.g. employees | count).
+type ScalarSubquery struct{ Plan *Plan }
+
+func (ScalarSubquery) scalarExpr() {}
 
 // --- Helpers ---
 

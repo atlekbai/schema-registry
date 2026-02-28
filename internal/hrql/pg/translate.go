@@ -48,10 +48,20 @@ func Translate(plan *hrql.Plan, obj *schema.ObjectDef, cache *schema.Cache) (*SQ
 	}
 
 	// For scalar plans, build the aggregate query.
+	// Arithmetic plans (ScalarExpr != nil) carry conditions in their sub-plans,
+	// so they use buildArithmeticQuery directly. Simple aggregates use the
+	// top-level translated conditions.
 	if plan.Kind == hrql.PlanScalar {
-		sql, args, err := buildAggregate(obj, plan.AggFunc, plan.AggField, result.Conditions)
+		var sql string
+		var args []any
+		var err error
+		if plan.ScalarExpr != nil {
+			sql, args, err = buildArithmeticQuery(plan.ScalarExpr, obj, cache)
+		} else {
+			sql, args, err = buildAggregate(obj, plan.AggFunc, plan.AggField, result.Conditions)
+		}
 		if err != nil {
-			return nil, fmt.Errorf("build aggregate: %w", err)
+			return nil, fmt.Errorf("build scalar: %w", err)
 		}
 		result.AggSQL = sql
 		result.AggArgs = args
@@ -308,13 +318,14 @@ func subqueryAggToSQL(c hrql.SubqueryAgg, obj *schema.ObjectDef) (sq.Sqlizer, er
 	}
 }
 
-// buildAggregate builds a SQL query for a terminal aggregation.
-func buildAggregate(
+// buildAggregateBuilder builds a Squirrel select builder for a terminal aggregation
+// without applying PlaceholderFormat. Used by both buildAggregate and arithmetic queries.
+func buildAggregateBuilder(
 	obj *schema.ObjectDef,
 	aggFunc string,
 	aggField string,
 	conditions []sq.Sqlizer,
-) (string, []any, error) {
+) sq.SelectBuilder {
 	alias := Alias()
 	from, baseWhere := TableSource(obj, alias)
 
@@ -334,7 +345,7 @@ func buildAggregate(
 	}
 
 	selectExpr := fmt.Sprintf(`%s(%s)`, aggFunc, col)
-	qb := sq.Select(selectExpr).From(from).PlaceholderFormat(sq.Dollar)
+	qb := sq.Select(selectExpr).From(from)
 
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
@@ -343,7 +354,71 @@ func buildAggregate(
 		qb = qb.Where(cond)
 	}
 
-	return qb.ToSql()
+	return qb
+}
+
+// buildAggregate builds a SQL query for a terminal aggregation.
+func buildAggregate(
+	obj *schema.ObjectDef,
+	aggFunc string,
+	aggField string,
+	conditions []sq.Sqlizer,
+) (string, []any, error) {
+	return buildAggregateBuilder(obj, aggFunc, aggField, conditions).
+		PlaceholderFormat(sq.Dollar).ToSql()
+}
+
+// scalarExprToSQL translates a ScalarExpr tree into a SQL fragment with ? placeholders.
+func scalarExprToSQL(expr hrql.ScalarExpr, obj *schema.ObjectDef, cache *schema.Cache) (string, []any, error) {
+	switch e := expr.(type) {
+	case hrql.ScalarLiteral:
+		return "?::numeric", []any{e.Value}, nil
+
+	case hrql.ScalarSubquery:
+		conds, err := TranslateConditions(e.Plan.Conditions, obj, cache)
+		if err != nil {
+			return "", nil, err
+		}
+		subSQL, subArgs, err := buildAggregateBuilder(obj, e.Plan.AggFunc, e.Plan.AggField, conds).ToSql()
+		if err != nil {
+			return "", nil, err
+		}
+		return "(" + subSQL + ")", subArgs, nil
+
+	case hrql.ScalarArith:
+		switch e.Op {
+		case "+", "-", "*", "/":
+		default:
+			return "", nil, fmt.Errorf("unsupported arithmetic operator %q", e.Op)
+		}
+		leftSQL, leftArgs, err := scalarExprToSQL(e.Left, obj, cache)
+		if err != nil {
+			return "", nil, err
+		}
+		rightSQL, rightArgs, err := scalarExprToSQL(e.Right, obj, cache)
+		if err != nil {
+			return "", nil, err
+		}
+		sql := fmt.Sprintf("(%s %s %s)", leftSQL, e.Op, rightSQL)
+		return sql, concatArgs(leftArgs, rightArgs), nil
+
+	default:
+		return "", nil, fmt.Errorf("unknown scalar expr type %T", expr)
+	}
+}
+
+// buildArithmeticQuery builds a full SELECT for an arithmetic scalar expression.
+func buildArithmeticQuery(expr hrql.ScalarExpr, obj *schema.ObjectDef, cache *schema.Cache) (string, []any, error) {
+	rawSQL, args, err := scalarExprToSQL(expr, obj, cache)
+	if err != nil {
+		return "", nil, err
+	}
+	selectSQL := "SELECT " + rawSQL
+	finalSQL, err := sq.Dollar.ReplacePlaceholders(selectSQL)
+	if err != nil {
+		return "", nil, err
+	}
+	return finalSQL, args, nil
 }
 
 // --- SQL helpers ---
