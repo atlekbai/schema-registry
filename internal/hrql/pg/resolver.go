@@ -1,56 +1,57 @@
 package pg
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	sq "github.com/Masterminds/squirrel"
 
+	"github.com/atlekbai/schema_registry/internal/hrql"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
-// Resolver implements hrql.Resolver using a PostgreSQL connection pool.
-// It translates field API names to storage columns internally.
-type Resolver struct {
-	pool   *pgxpool.Pool
-	cache  *schema.Cache
-	empObj *schema.ObjectDef
+// RefToSQL resolves an EmployeeRef to a SQL expression that yields an employee UUID.
+//   - {ID: "abc", Chain: nil}          → $1 (bind "abc")
+//   - {ID: "abc", Chain: ["manager"]}  → (SELECT "manager_id" FROM "core"."employees" WHERE "id" = $1)
+func RefToSQL(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
+	if len(ref.Chain) == 0 {
+		return sq.Expr("?", ref.ID)
+	}
+
+	// Walk the chain: each step dereferences a LOOKUP field.
+	// Start from the base ID, wrap in nested subqueries.
+	sql := "?"
+	args := []any{ref.ID}
+
+	for _, fieldName := range ref.Chain {
+		col := ResolveColumn(obj, fieldName)
+		sql = fmt.Sprintf(
+			`(SELECT %s FROM %s WHERE "id" = %s)`,
+			QI(col), obj.TableName(), sql,
+		)
+	}
+
+	return sq.Expr(sql, args...)
 }
 
-// NewResolver creates a Resolver backed by PostgreSQL.
-func NewResolver(pool *pgxpool.Pool, cache *schema.Cache) *Resolver {
-	return &Resolver{pool: pool, cache: cache, empObj: cache.Get("employees")}
+// PathSubquery wraps an EmployeeRef in a subquery that yields the manager_path.
+// Result: (SELECT "manager_path" FROM "core"."employees" WHERE "id" = <RefToSQL>)
+func PathSubquery(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
+	refSQL, refArgs, _ := RefToSQL(ref, obj).ToSql()
+	sql := fmt.Sprintf(
+		`(SELECT "manager_path" FROM %s WHERE "id" = %s)`,
+		obj.TableName(), refSQL,
+	)
+	return sq.Expr(sql, refArgs...)
 }
 
-func (r *Resolver) LookupPath(ctx context.Context, id string) (string, error) {
-	var path string
-	err := r.pool.QueryRow(ctx,
-		`SELECT "manager_path"::text FROM "core"."employees" WHERE "id" = $1`, id,
-	).Scan(&path)
-	if err == pgx.ErrNoRows {
-		return "", fmt.Errorf("employee %s not found", id)
-	}
-	if err != nil {
-		return "", fmt.Errorf("lookup path: %w", err)
-	}
-	return path, nil
-}
-
-func (r *Resolver) LookupFieldValue(ctx context.Context, id, fieldAPIName string) (string, error) {
-	column := ResolveColumn(r.empObj, fieldAPIName)
-
-	var value *string
-	q := fmt.Sprintf(`SELECT %s::text FROM "core"."employees" WHERE "id" = $1`, schema.QuoteIdent(column))
-	err := r.pool.QueryRow(ctx, q, id).Scan(&value)
-	if err == pgx.ErrNoRows {
-		return "", fmt.Errorf("employee %s not found", id)
-	}
-	if err != nil {
-		return "", fmt.Errorf("lookup field %s: %w", fieldAPIName, err)
-	}
-	if value == nil {
-		return "", nil
-	}
-	return *value, nil
+// FieldSubquery wraps an EmployeeRef in a subquery that yields a specific field value.
+// Result: (SELECT "col" FROM "core"."employees" WHERE "id" = <RefToSQL>)
+func FieldSubquery(ref hrql.EmployeeRef, fieldAPIName string, obj *schema.ObjectDef) sq.Sqlizer {
+	col := ResolveColumn(obj, fieldAPIName)
+	refSQL, refArgs, _ := RefToSQL(ref, obj).ToSql()
+	sql := fmt.Sprintf(
+		`(SELECT %s FROM %s WHERE "id" = %s)`,
+		QI(col), obj.TableName(), refSQL,
+	)
+	return sq.Expr(sql, refArgs...)
 }

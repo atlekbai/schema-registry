@@ -142,6 +142,14 @@ func (c *Cache) GetByID(id uuid.UUID) *ObjectDef {
 	return c.byID[id]
 }
 
+// Put registers an ObjectDef in the cache by both APIName and ID.
+func (c *Cache) Put(obj *ObjectDef) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.objects[obj.APIName] = obj
+	c.byID[obj.ID] = obj
+}
+
 // ObjectCount returns the number of loaded objects.
 func (c *Cache) ObjectCount() int {
 	c.mu.RLock()

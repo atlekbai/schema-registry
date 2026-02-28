@@ -1,7 +1,6 @@
 package hrql
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/atlekbai/schema_registry/internal/hrql/parser"
@@ -10,40 +9,38 @@ import (
 
 // Compiler compiles an HRQL AST into a Plan.
 type Compiler struct {
-	cache    *schema.Cache
-	resolver Resolver
-	selfID   string
-	empObj   *schema.ObjectDef
+	cache  *schema.Cache
+	selfID string
+	empObj *schema.ObjectDef
 }
 
 // NewCompiler creates a compiler for HRQL expressions.
-func NewCompiler(cache *schema.Cache, resolver Resolver, selfID string) *Compiler {
+func NewCompiler(cache *schema.Cache, selfID string) *Compiler {
 	return &Compiler{
-		cache:    cache,
-		resolver: resolver,
-		selfID:   selfID,
-		empObj:   cache.Get("employees"),
+		cache:  cache,
+		selfID: selfID,
+		empObj: cache.Get("employees"),
 	}
 }
 
 // Compile compiles an AST node into a storage-agnostic Plan.
-func (c *Compiler) Compile(ctx context.Context, node parser.Node) (*Plan, error) {
+func (c *Compiler) Compile(node parser.Node) (*Plan, error) {
 	if c.empObj == nil {
 		return nil, fmt.Errorf("employees object not found in schema cache")
 	}
-	return c.compileNode(ctx, node)
+	return c.compileNode(node)
 }
 
-func (c *Compiler) compileNode(ctx context.Context, node parser.Node) (*Plan, error) {
+func (c *Compiler) compileNode(node parser.Node) (*Plan, error) {
 	switch n := node.(type) {
 	case *parser.PipeExpr:
-		return c.compilePipe(ctx, n)
+		return c.compilePipe(n)
 	case *parser.SelfExpr:
 		return c.compileSelf()
 	case *parser.IdentExpr:
 		return c.compileIdent(n)
 	case *parser.FuncCall:
-		return c.compileFuncCall(ctx, n)
+		return c.compileFuncCall(n)
 	case *parser.FieldAccess:
 		return nil, fmt.Errorf("field access requires a source (use self.field or pipe)")
 	default:
@@ -52,18 +49,18 @@ func (c *Compiler) compileNode(ctx context.Context, node parser.Node) (*Plan, er
 }
 
 // compilePipe walks pipe steps left-to-right, accumulating state.
-func (c *Compiler) compilePipe(ctx context.Context, pipe *parser.PipeExpr) (*Plan, error) {
+func (c *Compiler) compilePipe(pipe *parser.PipeExpr) (*Plan, error) {
 	if len(pipe.Steps) == 0 {
 		return nil, fmt.Errorf("empty pipe expression")
 	}
 
-	plan, err := c.compileNode(ctx, pipe.Steps[0])
+	plan, err := c.compileNode(pipe.Steps[0])
 	if err != nil {
 		return nil, err
 	}
 
 	for _, step := range pipe.Steps[1:] {
-		plan, err = c.applyStep(ctx, plan, step)
+		plan, err = c.applyStep(plan, step)
 		if err != nil {
 			return nil, err
 		}
@@ -73,12 +70,12 @@ func (c *Compiler) compilePipe(ctx context.Context, pipe *parser.PipeExpr) (*Pla
 }
 
 // applyStep applies a single pipe step to the current plan.
-func (c *Compiler) applyStep(ctx context.Context, plan *Plan, step parser.Node) (*Plan, error) {
+func (c *Compiler) applyStep(plan *Plan, step parser.Node) (*Plan, error) {
 	switch s := step.(type) {
 	case *parser.FieldAccess:
 		return c.applyFieldAccess(plan, s)
 	case *parser.WhereExpr:
-		return c.applyWhere(ctx, plan, s)
+		return c.applyWhere(plan, s)
 	case *parser.SortExpr:
 		return c.applySort(plan, s)
 	case *parser.PickExpr:
@@ -86,7 +83,7 @@ func (c *Compiler) applyStep(ctx context.Context, plan *Plan, step parser.Node) 
 	case *parser.AggExpr:
 		return c.applyAgg(plan, s)
 	case *parser.FuncCall:
-		return c.applyFuncInPipe(ctx, plan, s)
+		return c.applyFuncInPipe(plan, s)
 	default:
 		return nil, fmt.Errorf("unexpected pipe step type %T", step)
 	}
@@ -137,12 +134,12 @@ func (c *Compiler) applyFieldAccess(plan *Plan, fa *parser.FieldAccess) (*Plan, 
 	return plan, nil
 }
 
-func (c *Compiler) applyWhere(ctx context.Context, plan *Plan, w *parser.WhereExpr) (*Plan, error) {
+func (c *Compiler) applyWhere(plan *Plan, w *parser.WhereExpr) (*Plan, error) {
 	if plan.Kind != PlanList {
 		return nil, fmt.Errorf("where requires a list source")
 	}
 
-	cond, err := c.compileWhereCond(ctx, w.Cond)
+	cond, err := c.compileWhereCond(w.Cond)
 	if err != nil {
 		return nil, fmt.Errorf("where: %w", err)
 	}
@@ -202,4 +199,3 @@ func (c *Compiler) applyAgg(plan *Plan, a *parser.AggExpr) (*Plan, error) {
 	plan.AggFunc = a.Op
 	return plan, nil
 }
-

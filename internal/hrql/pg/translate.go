@@ -60,6 +60,20 @@ func Translate(plan *hrql.Plan, obj *schema.ObjectDef, cache *schema.Cache) (*SQ
 	return result, nil
 }
 
+// TranslateBooleanPlan translates a PlanBoolean into a SQL query that returns a single boolean.
+func TranslateBooleanPlan(plan *hrql.Plan, obj *schema.ObjectDef) (string, []any, error) {
+	if plan.BoolCondition == nil {
+		return "", nil, fmt.Errorf("boolean plan has no condition")
+	}
+
+	check, ok := plan.BoolCondition.(hrql.ReportsToCheck)
+	if !ok {
+		return "", nil, fmt.Errorf("unsupported boolean condition type %T", plan.BoolCondition)
+	}
+
+	return ReportsToCheckSQL(check.Emp, check.Target, obj)
+}
+
 // TranslateConditions converts a slice of storage-agnostic Conditions to SQL expressions.
 func TranslateConditions(conds []hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache) ([]sq.Sqlizer, error) {
 	var result []sq.Sqlizer
@@ -85,6 +99,9 @@ func ConditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 
 	case hrql.FieldCmp:
 		return fieldCmpToSQL(c, obj, cache)
+
+	case hrql.FieldCmpRef:
+		return fieldCmpRefToSQL(c, obj)
 
 	case hrql.StringMatch:
 		return stringMatchToSQL(c, obj)
@@ -112,23 +129,22 @@ func ConditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 		return sq.Or{left, right}, nil
 
 	case hrql.OrgChainUp:
-		return ChainUp(c.Path, c.Steps), nil
+		return ChainUp(c.Emp, c.Steps, obj), nil
 
 	case hrql.OrgChainDown:
-		return ChainDown(c.Path, c.Depth), nil
+		return ChainDown(c.Emp, c.Depth, obj), nil
 
 	case hrql.OrgChainAll:
-		return ChainAll(c.Path), nil
+		return ChainAll(c.Emp, obj), nil
 
 	case hrql.OrgSubtree:
-		return Subtree(c.Path), nil
+		return Subtree(c.Emp, obj), nil
 
 	case hrql.SameFieldCond:
-		column := ResolveColumn(obj, c.Field)
-		return SameField(column, c.Value, c.ExcludeID), nil
+		return SameField(c.Field, c.Emp, obj), nil
 
 	case hrql.ReportsTo:
-		return ReportsToWhere(c.TargetPath), nil
+		return ReportsToWhere(c.Target, obj), nil
 
 	case hrql.SubqueryAgg:
 		return subqueryAggToSQL(c, obj)
@@ -183,6 +199,31 @@ func fieldCmpToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cache) 
 
 	// Lookup chain: .department.title == "Eng"
 	return lookupChainToSQL(c, obj, cache)
+}
+
+// fieldCmpRefToSQL translates a FieldCmpRef (field vs EmployeeRef subquery) to SQL.
+func fieldCmpRefToSQL(c hrql.FieldCmpRef, obj *schema.ObjectDef) (sq.Sqlizer, error) {
+	alias := Alias()
+
+	if len(c.Field) == 0 {
+		return nil, fmt.Errorf("empty field in FieldCmpRef")
+	}
+
+	fd := obj.FieldsByAPIName[c.Field[0]]
+	if fd == nil {
+		return nil, fmt.Errorf("unknown field %q", c.Field[0])
+	}
+	col := FilterExpr(alias, fd)
+
+	// RefToSQL already walks the chain to produce the correct subquery.
+	// For {ID: selfID, Chain: ["department"]} → (SELECT "department_id" FROM ... WHERE "id" = $1)
+	if len(c.Ref.Chain) == 0 {
+		return comparisonExpr(col, c.Op, c.Ref.ID), nil
+	}
+
+	refSQL, refArgs, _ := RefToSQL(c.Ref, obj).ToSql()
+	sql := fmt.Sprintf(`%s %s %s`, col, sqlOp(c.Op), refSQL)
+	return sq.Expr(sql, refArgs...), nil
 }
 
 // lookupChainToSQL builds a subquery for lookup-chain field comparisons.

@@ -28,13 +28,20 @@ type Plan struct {
 	AggField string // field API name, "" for count(*)
 
 	// PlanBoolean fields
-	BoolResult *bool
+	BoolCondition Condition // deferred to SQL execution
 }
 
 // OrderBy specifies sort order for a list result.
 type OrderBy struct {
 	Field string
 	Desc  bool
+}
+
+// EmployeeRef is an unresolved reference to an employee or a derived value.
+// The pg backend resolves it to SQL at translation time.
+type EmployeeRef struct {
+	ID    string   // base UUID (selfID or literal)
+	Chain []string // optional field chain: ["manager"] for self.manager
 }
 
 // --- Condition types ---
@@ -52,6 +59,15 @@ type FieldCmp struct {
 }
 
 func (FieldCmp) condition() {}
+
+// FieldCmpRef: .field == self.field (comparison with an unresolved employee ref)
+type FieldCmpRef struct {
+	Field []string    // API name chain on the left
+	Op    string      // comparison operator
+	Ref   EmployeeRef // unresolved reference on the right
+}
+
+func (FieldCmpRef) condition() {}
 
 // StringMatch: .field | contains("str")
 type StringMatch struct {
@@ -83,11 +99,11 @@ type OrCond struct{ Left, Right Condition }
 func (OrCond) condition() {}
 
 // --- Org hierarchy conditions ---
-// These carry resolved path data, not SQL.
+// These carry unresolved EmployeeRef data, not resolved paths.
 
 // OrgChainUp: ancestor at exactly N levels above target.
 type OrgChainUp struct {
-	Path  string
+	Emp   EmployeeRef
 	Steps int
 }
 
@@ -95,35 +111,42 @@ func (OrgChainUp) condition() {}
 
 // OrgChainDown: descendants at exactly N levels below target.
 type OrgChainDown struct {
-	Path  string
+	Emp   EmployeeRef
 	Depth int
 }
 
 func (OrgChainDown) condition() {}
 
 // OrgChainAll: all ancestors of target (full chain to root).
-type OrgChainAll struct{ Path string }
+type OrgChainAll struct{ Emp EmployeeRef }
 
 func (OrgChainAll) condition() {}
 
 // OrgSubtree: all descendants of target (any depth).
-type OrgSubtree struct{ Path string }
+type OrgSubtree struct{ Emp EmployeeRef }
 
 func (OrgSubtree) condition() {}
 
-// SameFieldCond: column = value AND id != excludeID (peers/colleagues).
+// SameFieldCond: column = (SELECT field FROM emp WHERE id = ref.ID) AND id != ref.ID
 type SameFieldCond struct {
-	Field     string // API name
-	Value     string
-	ExcludeID string
+	Field string      // API name
+	Emp   EmployeeRef // employee whose field value to match; Emp.ID used for exclude
 }
 
 func (SameFieldCond) condition() {}
 
 // ReportsTo: reports_to(., target) inside where — ltree descendant check.
-type ReportsTo struct{ TargetPath string }
+type ReportsTo struct{ Target EmployeeRef }
 
 func (ReportsTo) condition() {}
+
+// ReportsToCheck: top-level reports_to(emp, target) — produces a boolean via SQL.
+type ReportsToCheck struct {
+	Emp    EmployeeRef
+	Target EmployeeRef
+}
+
+func (ReportsToCheck) condition() {}
 
 // SubqueryAgg: correlated subquery like reports(., 1) | count > 0
 type SubqueryAgg struct {
@@ -167,17 +190,4 @@ func (LikeFilter) condition() {}
 
 func joinChain(chain []string) string {
 	return strings.Join(chain, ".")
-}
-
-func nlevelFromPath(path string) int {
-	if path == "" {
-		return 0
-	}
-	n := 1
-	for _, ch := range path {
-		if ch == '.' {
-			n++
-		}
-	}
-	return n
 }

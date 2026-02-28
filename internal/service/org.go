@@ -42,9 +42,8 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	}
 
 	// Compile AST to a storage-agnostic Plan.
-	resolver := hrqlpg.NewResolver(s.pool, s.cache)
-	compiler := hrql.NewCompiler(s.cache, resolver, msg.SelfId)
-	plan, err := compiler.Compile(ctx, ast)
+	compiler := hrql.NewCompiler(s.cache, msg.SelfId)
+	plan, err := compiler.Compile(ast)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -55,7 +54,7 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	case hrql.PlanScalar:
 		return s.runScalar(ctx, plan)
 	case hrql.PlanBoolean:
-		return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: plan.BoolResult}), nil
+		return s.runBoolean(ctx, plan)
 	default:
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unknown plan kind %v", plan.Kind))
 	}
@@ -181,6 +180,26 @@ func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.R
 	}
 
 	return connect.NewResponse(&registryv1.QueryResponse{Scalar: &scalar}), nil
+}
+
+// runBoolean executes a boolean-producing HRQL plan (e.g. reports_to) via SQL.
+func (s *OrgService) runBoolean(ctx context.Context, plan *hrql.Plan) (*connect.Response[registryv1.QueryResponse], error) {
+	obj, err := s.employeesObj()
+	if err != nil {
+		return nil, err
+	}
+
+	sql, args, err := hrqlpg.TranslateBooleanPlan(plan, obj)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("translate boolean plan: %w", err))
+	}
+
+	var result *bool
+	if err := s.pool.QueryRow(ctx, sql, args...).Scan(&result); err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("boolean query: %w", err))
+	}
+
+	return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: result}), nil
 }
 
 // -- helpers --

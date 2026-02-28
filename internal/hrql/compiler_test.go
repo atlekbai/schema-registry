@@ -74,11 +74,9 @@ func testEmployeesObj() *schema.ObjectDef {
 
 // --- Plan condition tests ---
 
-func TestOrgChainAllRootNode(t *testing.T) {
-	// Single label = root → OrgChainAll with single-label path.
-	cond := OrgChainAll{Path: "abc123"}
+func TestOrgChainAllWithRef(t *testing.T) {
+	cond := OrgChainAll{Emp: EmployeeRef{ID: "abc"}}
 	_ = cond // Plan condition is a value type — no SQL to check here.
-	// The SQL translation is tested in pg/ package.
 }
 
 func TestLtreeLabelToUUID(t *testing.T) {
@@ -95,27 +93,6 @@ func TestLtreeLabelToUUIDShort(t *testing.T) {
 	got := LtreeLabelToUUID(label)
 	if got != label {
 		t.Fatalf("expected %q, got %q", label, got)
-	}
-}
-
-// --- nlevelFromPath tests ---
-
-func TestNlevelFromPath(t *testing.T) {
-	tests := []struct {
-		path string
-		want int
-	}{
-		{"", 0},
-		{"abc", 1},
-		{"a.b", 2},
-		{"a.b.c", 3},
-		{"a.b.c.d.e", 5},
-	}
-	for _, tt := range tests {
-		got := nlevelFromPath(tt.path)
-		if got != tt.want {
-			t.Errorf("nlevelFromPath(%q): expected %d, got %d", tt.path, tt.want, got)
-		}
 	}
 }
 
@@ -250,6 +227,7 @@ func TestConditionTypes(t *testing.T) {
 	var _ Condition = IdentityFilter{}
 	var _ Condition = NullFilter{}
 	var _ Condition = FieldCmp{}
+	var _ Condition = FieldCmpRef{}
 	var _ Condition = StringMatch{}
 	var _ Condition = AndCond{}
 	var _ Condition = OrCond{}
@@ -259,5 +237,6 @@ func TestConditionTypes(t *testing.T) {
 	var _ Condition = OrgSubtree{}
 	var _ Condition = SameFieldCond{}
 	var _ Condition = ReportsTo{}
+	var _ Condition = ReportsToCheck{}
 	var _ Condition = SubqueryAgg{}
 }
