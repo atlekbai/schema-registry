@@ -79,23 +79,6 @@ func TestOrgChainAllWithRef(t *testing.T) {
 	_ = cond // Plan condition is a value type — no SQL to check here.
 }
 
-func TestLtreeLabelToUUID(t *testing.T) {
-	label := "550e8400e29b41d4a716446655440000"
-	got := LtreeLabelToUUID(label)
-	want := "550e8400-e29b-41d4-a716-446655440000"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestLtreeLabelToUUIDShort(t *testing.T) {
-	label := "short"
-	got := LtreeLabelToUUID(label)
-	if got != label {
-		t.Fatalf("expected %q, got %q", label, got)
-	}
-}
-
 // --- reverseOp tests ---
 
 func TestReverseOp(t *testing.T) {
@@ -197,26 +180,6 @@ func TestTryCompileStringOpNoMatch(t *testing.T) {
 	_, ok := c.tryCompileStringOp(pipe)
 	if ok {
 		t.Fatal("expected no match for non-string-op pipe")
-	}
-}
-
-// --- isDescendant tests ---
-
-func TestIsDescendant(t *testing.T) {
-	tests := []struct {
-		emp, tgt string
-		want     bool
-	}{
-		{"a.b.c", "a.b", true},
-		{"a.b", "a.b", false},
-		{"a.b", "a.b.c", false},
-		{"a.b.c", "x.y", false},
-	}
-	for _, tt := range tests {
-		got := isDescendant(tt.emp, tt.tgt)
-		if got != tt.want {
-			t.Errorf("isDescendant(%q, %q): expected %v, got %v", tt.emp, tt.tgt, tt.want, got)
-		}
 	}
 }
 

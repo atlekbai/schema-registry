@@ -13,6 +13,8 @@ import (
 
 	"github.com/atlekbai/schema_registry/internal/config"
 	"github.com/atlekbai/schema_registry/internal/db"
+	"github.com/atlekbai/schema_registry/internal/hrql"
+	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/atlekbai/schema_registry/internal/server"
 	"github.com/atlekbai/schema_registry/internal/service"
@@ -48,10 +50,13 @@ func main() {
 		server.ValidationInterceptor(validator),
 	}
 
+	engine := hrql.NewEngine(cache)
+	pgQ := hrqlpg.NewPGQueryable(pool, cache)
+
 	services := []server.ConnectService{
 		service.NewRegistryService(pool, cache),
 		service.NewMetadataService(pool, cache),
-		service.NewOrgService(pool, cache),
+		service.NewOrgService(engine, pgQ),
 	}
 
 	vanguardServices := make([]*vanguard.Service, len(services))

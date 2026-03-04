@@ -19,9 +19,6 @@ import (
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
-// exactCountThreshold is the planner estimate below which we run an exact count.
-const exactCountThreshold = 50_000
-
 type RegistryService struct {
 	pool  *pgxpool.Pool
 	cache *schema.Cache
@@ -68,11 +65,11 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 	var totalCount int64
 	g.Go(func() error {
 		var err error
-		totalCount, err = s.resolveCount(gctx, builder, obj, params)
+		totalCount, err = hrqlpg.ResolveCount(gctx, s.pool, builder, params)
 		return err
 	})
 
-	var rows []jsonRow
+	var rows []hrqlpg.JSONRow
 	g.Go(func() error {
 		sqlStr, args, err := builder.BuildList(params)
 		if err != nil {
@@ -84,7 +81,7 @@ func (s *RegistryService) List(ctx context.Context, req *connect.Request[registr
 			return err
 		}
 		defer dbRows.Close()
-		rows, err = scanJSONRows(dbRows, params.Order != nil)
+		rows, err = hrqlpg.ScanJSONRows(dbRows, params.Order != nil)
 		return err
 	})
 
@@ -159,74 +156,6 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 	}
 
 	return connect.NewResponse(&registryv1.GetResponse{Record: record}), nil
-}
-
-// resolveCount uses the EXPLAIN trick for cheap estimation on large tables,
-// falling back to exact count only when the planner estimate is small.
-func (s *RegistryService) resolveCount(ctx context.Context, builder hrqlpg.Builder, obj *schema.ObjectDef, params *hrqlpg.QueryParams) (int64, error) {
-	estSQL, estArgs, err := builder.BuildEstimate(params)
-	if err != nil {
-		return 0, err
-	}
-
-	var planJSON string
-	err = s.pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+estSQL, estArgs...).Scan(&planJSON)
-	if err != nil {
-		return 0, fmt.Errorf("explain estimate: %w", err)
-	}
-
-	estimated := parsePlanRows(planJSON)
-
-	if estimated <= exactCountThreshold {
-		countSQL, countArgs, err := builder.BuildCount(params)
-		if err != nil {
-			return estimated, nil
-		}
-		var count int64
-		if err := s.pool.QueryRow(ctx, countSQL, countArgs...).Scan(&count); err != nil {
-			return estimated, nil
-		}
-		return count, nil
-	}
-
-	return estimated, nil
-}
-
-// jsonRow holds a single result row as raw JSON plus cursor extraction columns.
-type jsonRow struct {
-	Data      json.RawMessage
-	CursorID  string
-	CursorVal string
-}
-
-func scanJSONRows(rows pgx.Rows, hasOrderVal bool) ([]jsonRow, error) {
-	var results []jsonRow
-	for rows.Next() {
-		var r jsonRow
-		var err error
-		if hasOrderVal {
-			err = rows.Scan(&r.Data, &r.CursorID, &r.CursorVal)
-		} else {
-			err = rows.Scan(&r.Data, &r.CursorID)
-		}
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, r)
-	}
-	return results, rows.Err()
-}
-
-func parsePlanRows(planJSON string) int64 {
-	var plan []struct {
-		Plan struct {
-			PlanRows float64 `json:"Plan Rows"`
-		} `json:"Plan"`
-	}
-	if err := json.Unmarshal([]byte(planJSON), &plan); err != nil || len(plan) == 0 {
-		return 0
-	}
-	return int64(plan[0].Plan.PlanRows)
 }
 
 func rawJSONToStruct(data json.RawMessage) (*structpb.Struct, error) {
