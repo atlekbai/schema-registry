@@ -137,11 +137,12 @@ func (q *PGQuerier) execList(ctx context.Context, plan *hrql.Plan, obj *schema.O
 	}
 
 	input := ParamsInput{
-		Select: opts.Select,
-		Expand: opts.Expand,
-		Order:  opts.Order,
-		Limit:  opts.Limit,
-		Cursor: opts.Cursor,
+		Select:  opts.Select,
+		Expand:  opts.Expand,
+		Order:   opts.Order,
+		Limit:   opts.Limit,
+		Cursor:  opts.Cursor,
+		Filters: opts.Filters,
 	}
 
 	if sqlResult.OrderBy != nil {
@@ -159,8 +160,15 @@ func (q *PGQuerier) execList(ctx context.Context, plan *hrql.Plan, obj *schema.O
 		return nil, err
 	}
 
-	// Use already-translated SQL conditions from Translate() instead of re-translating.
+	// Merge plan conditions (from HRQL) with filter conditions (from REST params).
 	params.SQLConditions = sqlResult.Conditions
+	if len(params.Conditions) > 0 {
+		filterSQL, err := TranslateConditions(params.Conditions, obj, q.cache)
+		if err != nil {
+			return nil, fmt.Errorf("translate filter conditions: %w", err)
+		}
+		params.SQLConditions = append(params.SQLConditions, filterSQL...)
+	}
 
 	params.ExpandPlans = ResolveExpands(params.Expand, obj, q.cache)
 

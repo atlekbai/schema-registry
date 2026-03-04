@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	registryv1 "github.com/atlekbai/schema_registry/gen/registry/v1"
 	"github.com/atlekbai/schema_registry/gen/registry/v1/registryv1connect"
@@ -55,13 +54,9 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 		resp.ResultObject = v.ObjectAPIName
 		resp.TotalCount = v.TotalCount
 		resp.NextCursor = v.NextCursor
-		resp.Results = make([]*structpb.Struct, len(v.Rows))
-		for i, row := range v.Rows {
-			st, err := rawJSONToStruct(row)
-			if err != nil {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("marshal result: %w", err))
-			}
-			resp.Results[i] = st
+		resp.Results, err = rowsToStructs(v.Rows)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	case hrql.Scalar:
 		resp.ResultObject = v.ObjectAPIName

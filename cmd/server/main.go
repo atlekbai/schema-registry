@@ -54,7 +54,7 @@ func main() {
 	pgQ := hrqlpg.NewPGQueryable(pool, cache)
 
 	services := []server.ConnectService{
-		service.NewRegistryService(pool, cache),
+		service.NewRegistryService(pool, cache, engine, pgQ),
 		service.NewMetadataService(pool, cache),
 		service.NewOrgService(engine, pgQ),
 	}
