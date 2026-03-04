@@ -93,11 +93,15 @@ func ReportsToCheckSQL(emp, target hrql.EmployeeRef, obj *schema.ObjectDef) (str
 	empPathSQL, empPathArgs, _ := PathSubquery(emp, obj).ToSql()
 	tgtPathSQL, tgtPathArgs, _ := PathSubquery(target, obj).ToSql()
 
-	sql := fmt.Sprintf(
+	raw := fmt.Sprintf(
 		`SELECT (%s <@ %s AND %s != %s)`,
 		empPathSQL, tgtPathSQL, empPathSQL, tgtPathSQL,
 	)
 	args := concatArgs(empPathArgs, tgtPathArgs, empPathArgs, tgtPathArgs)
+	sql, err := sq.Dollar.ReplacePlaceholders(raw)
+	if err != nil {
+		return "", nil, fmt.Errorf("replace placeholders: %w", err)
+	}
 	return sql, args, nil
 }
 

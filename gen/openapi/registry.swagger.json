@@ -875,8 +875,7 @@
           "description": "Boolean result (reports_to)."
         },
         "scalar": {
-          "type": "number",
-          "format": "double",
+          "type": "string",
           "description": "Scalar result (aggregation output like count, avg, sum, min, max)."
         }
       }

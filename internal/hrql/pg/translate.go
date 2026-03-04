@@ -329,12 +329,13 @@ func buildAggregateBuilder(
 	alias := Alias()
 	from, baseWhere := TableSource(obj, alias)
 
+	var fd *schema.FieldDef
 	var col string
 	switch {
 	case aggFunc == "count" && aggField == "":
 		col = "*"
 	case aggField != "":
-		fd := obj.FieldsByAPIName[aggField]
+		fd = obj.FieldsByAPIName[aggField]
 		if fd != nil {
 			col = FilterExpr(alias, fd)
 		} else {
@@ -344,7 +345,14 @@ func buildAggregateBuilder(
 		col = "*"
 	}
 
-	selectExpr := fmt.Sprintf(`%s(%s)`, aggFunc, col)
+	// PostgreSQL doesn't support avg() on date/timestamp columns.
+	// Convert to epoch, average, and convert back.
+	var selectExpr string
+	if aggFunc == "avg" && fd != nil && (fd.Type == schema.FieldDate || fd.Type == schema.FieldDatetime) {
+		selectExpr = fmt.Sprintf(`to_timestamp(avg(extract(epoch from %s)))::text`, col)
+	} else {
+		selectExpr = fmt.Sprintf(`%s(%s)`, aggFunc, col)
+	}
 	qb := sq.Select(selectExpr).From(from)
 
 	if baseWhere != nil {

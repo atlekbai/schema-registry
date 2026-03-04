@@ -256,7 +256,7 @@ select:focus {
 /* ── Tree panel ───────────────────────────────────────────────── */
 
 .org-tree-panel {
-  width: 300px;
+  width: 420px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -322,6 +322,14 @@ select:focus {
 
 .tree-row.tree-selected {
   background-color: #dbeafe;
+}
+
+.tree-row.tree-result {
+  background-color: #dcfce7;
+}
+
+.tree-row.tree-selected.tree-result {
+  background-color: #bfdbfe;
 }
 
 .tree-toggle {

@@ -128,7 +128,7 @@ type QueryResponse struct {
 	// Boolean result (reports_to).
 	ReportsTo *bool `protobuf:"varint,4,opt,name=reports_to,json=reportsTo,proto3,oneof" json:"reports_to,omitempty"`
 	// Scalar result (aggregation output like count, avg, sum, min, max).
-	Scalar        *float64 `protobuf:"fixed64,5,opt,name=scalar,proto3,oneof" json:"scalar,omitempty"`
+	Scalar        *string `protobuf:"bytes,5,opt,name=scalar,proto3,oneof" json:"scalar,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -191,11 +191,11 @@ func (x *QueryResponse) GetReportsTo() bool {
 	return false
 }
 
-func (x *QueryResponse) GetScalar() float64 {
+func (x *QueryResponse) GetScalar() string {
 	if x != nil && x.Scalar != nil {
 		return *x.Scalar
 	}
-	return 0
+	return ""
 }
 
 var File_registry_v1_org_service_proto protoreflect.FileDescriptor
@@ -220,7 +220,7 @@ const file_registry_v1_org_service_proto_rawDesc = "" +
 	"nextCursor\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"reports_to\x18\x04 \x01(\bH\x01R\treportsTo\x88\x01\x01\x12\x1b\n" +
-	"\x06scalar\x18\x05 \x01(\x01H\x02R\x06scalar\x88\x01\x01B\x0e\n" +
+	"\x06scalar\x18\x05 \x01(\tH\x02R\x06scalar\x88\x01\x01B\x0e\n" +
 	"\f_next_cursorB\r\n" +
 	"\v_reports_toB\t\n" +
 	"\a_scalar2g\n" +

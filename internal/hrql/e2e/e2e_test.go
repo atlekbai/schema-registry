@@ -431,6 +431,24 @@ func TestMaxOnField(t *testing.T) {
 	assertContains(t, result.AggSQL, `"_e"."employee_number"`)
 }
 
+func TestAvgOnDateField(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `employees | .start_date | avg`, "")
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+	if plan.AggFunc != "avg" {
+		t.Errorf("expected AggFunc=avg, got %q", plan.AggFunc)
+	}
+	if plan.AggField != "start_date" {
+		t.Errorf("expected AggField=start_date, got %q", plan.AggField)
+	}
+
+	// Date columns use epoch extraction: to_timestamp(avg(extract(epoch from col)))
+	assertContains(t, result.AggSQL, `to_timestamp(avg(extract(epoch from`)
+	assertContains(t, result.AggSQL, `"_e"."start_date"`)
+}
+
 func TestLengthAsCount(t *testing.T) {
 	plan, result, _, _ := pipeline(t, `employees | length`, "")
 

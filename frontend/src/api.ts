@@ -165,7 +165,7 @@ export interface OrgQueryResponse {
   totalCount?: number
   nextCursor?: string | null
   reportsTo?: boolean
-  scalar?: number
+  scalar?: string
 }
 
 export async function orgQuery(

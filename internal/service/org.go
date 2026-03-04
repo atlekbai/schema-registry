@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -167,19 +166,7 @@ func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.R
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("aggregate query: %w", err))
 	}
 
-	var scalar float64
-	if rawResult != nil {
-		scalar, err = strconv.ParseFloat(*rawResult, 64)
-		if err != nil {
-			n, err2 := strconv.ParseInt(*rawResult, 10, 64)
-			if err2 != nil {
-				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("parse aggregate result %q: %w", *rawResult, err))
-			}
-			scalar = float64(n)
-		}
-	}
-
-	return connect.NewResponse(&registryv1.QueryResponse{Scalar: &scalar}), nil
+	return connect.NewResponse(&registryv1.QueryResponse{Scalar: rawResult}), nil
 }
 
 // runBoolean executes a boolean-producing HRQL plan (e.g. reports_to) via SQL.

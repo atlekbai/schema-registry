@@ -295,21 +295,24 @@ const TreeNode = memo(function TreeNode({
   node,
   depth,
   selfId,
+  resultIds,
   onSelectSelf,
 }: {
   node: TreeEmployee
   depth: number
   selfId: string | null
+  resultIds: Set<string>
   onSelectSelf: (e: Employee) => void
 }) {
   const [expanded, setExpanded] = useState(depth < 2)
   const hasChildren = node.children.length > 0
   const isSelected = selfId === node.id
+  const isResult = resultIds.has(node.id)
 
   return (
     <div className="tree-node">
       <div
-        className={`tree-row${isSelected ? ' tree-selected' : ''}`}
+        className={`tree-row${isSelected ? ' tree-selected' : ''}${isResult ? ' tree-result' : ''}`}
         onClick={() => onSelectSelf(node)}
       >
         <span
@@ -334,6 +337,7 @@ const TreeNode = memo(function TreeNode({
               node={child}
               depth={depth + 1}
               selfId={selfId}
+              resultIds={resultIds}
               onSelectSelf={onSelectSelf}
             />
           ))}
@@ -350,7 +354,7 @@ export default function OrgPage() {
   const [results, setResults] = useState<Record<string, unknown>[]>([])
   const [totalCount, setTotalCount] = useState<number | null>(null)
   const [boolResult, setBoolResult] = useState<boolean | null>(null)
-  const [scalarResult, setScalarResult] = useState<number | null>(null)
+  const [scalarResult, setScalarResult] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -359,6 +363,13 @@ export default function OrgPage() {
 
   const tree = useMemo(() => buildTree(employees), [employees])
   const selfId = selfEmployee?.id ?? null
+  const resultIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const r of results) {
+      if (typeof r.id === 'string') ids.add(r.id)
+    }
+    return ids
+  }, [results])
 
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [selectedIdx, setSelectedIdx] = useState(0)
@@ -547,6 +558,7 @@ export default function OrgPage() {
               node={root}
               depth={0}
               selfId={selfId}
+              resultIds={resultIds}
               onSelectSelf={handleSelectSelf}
             />
           ))}

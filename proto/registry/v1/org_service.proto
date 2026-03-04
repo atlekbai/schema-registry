@@ -38,5 +38,5 @@ message QueryResponse {
   // Boolean result (reports_to).
   optional bool reports_to = 4;
   // Scalar result (aggregation output like count, avg, sum, min, max).
-  optional double scalar = 5;
+  optional string scalar = 5;
 }

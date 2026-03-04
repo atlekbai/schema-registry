@@ -40,20 +40,21 @@ tasks:
 
   migrate-up:
     desc: Run all migrations
+    vars:
+      FILES:
+        - migrations/000001_metadata.up.sql
+        - migrations/000002_metadata_functions.up.sql
+        - migrations/000003_core.up.sql
+        - migrations/000004_metadata_core.up.sql
+        - migrations/000005_employees_ltree.up.sql
+        - migrations/000006_seed.up.sql
     cmds:
       - echo "Running migrations..."
-      - for: sources
+      - for: { var: FILES }
         cmd: |
           echo "Applying {{.ITEM}}..."
           docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < {{.ITEM}}
       - echo "Migrations completed!"
-    sources:
-      - migrations/000001_metadata.up.sql
-      - migrations/000002_metadata_functions.up.sql
-      - migrations/000003_core.up.sql
-      - migrations/000004_metadata_core.up.sql
-      - migrations/000005_employees_ltree.up.sql
-      - migrations/000006_seed.up.sql
 
   migrate-down:
     desc: Rollback all migrations
