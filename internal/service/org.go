@@ -41,7 +41,7 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	}
 
 	// Compile AST to a storage-agnostic Plan.
-	compiler := hrql.NewCompiler(s.cache, msg.SelfId)
+	compiler := hrql.NewCompiler(s.cache, msg.SelfId, msg.SelfObject)
 	plan, err := compiler.Compile(ast)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -61,7 +61,7 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 
 // runHRQLList executes a list-producing HRQL plan.
 func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *registryv1.QueryRequest) (*connect.Response[registryv1.QueryResponse], error) {
-	obj, err := s.employeesObj()
+	obj, err := s.resolveObj(plan.ObjectAPIName)
 	if err != nil {
 		return nil, err
 	}
@@ -128,7 +128,7 @@ func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *regi
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("query failed: %w", err))
 	}
 
-	resp := &registryv1.QueryResponse{TotalCount: totalCount}
+	resp := &registryv1.QueryResponse{TotalCount: totalCount, ResultObject: plan.ObjectAPIName}
 
 	if len(rows) > params.Limit {
 		rows = rows[:params.Limit]
@@ -151,7 +151,7 @@ func (s *OrgService) runHRQLList(ctx context.Context, plan *hrql.Plan, msg *regi
 
 // runScalar executes a scalar-producing HRQL plan (aggregation).
 func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.Response[registryv1.QueryResponse], error) {
-	obj, err := s.employeesObj()
+	obj, err := s.resolveObj(plan.ObjectAPIName)
 	if err != nil {
 		return nil, err
 	}
@@ -166,12 +166,12 @@ func (s *OrgService) runScalar(ctx context.Context, plan *hrql.Plan) (*connect.R
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("aggregate query: %w", err))
 	}
 
-	return connect.NewResponse(&registryv1.QueryResponse{Scalar: rawResult}), nil
+	return connect.NewResponse(&registryv1.QueryResponse{Scalar: rawResult, ResultObject: plan.ObjectAPIName}), nil
 }
 
 // runBoolean executes a boolean-producing HRQL plan (e.g. reports_to) via SQL.
 func (s *OrgService) runBoolean(ctx context.Context, plan *hrql.Plan) (*connect.Response[registryv1.QueryResponse], error) {
-	obj, err := s.employeesObj()
+	obj, err := s.resolveObj(plan.ObjectAPIName)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (s *OrgService) runBoolean(ctx context.Context, plan *hrql.Plan) (*connect.
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("boolean query: %w", err))
 	}
 
-	return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: result}), nil
+	return connect.NewResponse(&registryv1.QueryResponse{ReportsTo: result, ResultObject: plan.ObjectAPIName}), nil
 }
 
 // -- helpers --
@@ -201,10 +201,13 @@ func listInputFromMsg(msg *registryv1.QueryRequest) hrqlpg.ParamsInput {
 	}
 }
 
-func (s *OrgService) employeesObj() (*schema.ObjectDef, error) {
-	obj := s.cache.Get("employees")
+func (s *OrgService) resolveObj(apiName string) (*schema.ObjectDef, error) {
+	if apiName == "" {
+		apiName = "employees"
+	}
+	obj := s.cache.Get(apiName)
 	if obj == nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("employees object not in cache"))
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("object %q not in cache", apiName))
 	}
 	return obj, nil
 }

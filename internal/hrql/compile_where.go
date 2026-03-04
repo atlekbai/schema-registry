@@ -135,10 +135,15 @@ func (c *Compiler) resolveFieldRef(fa *parser.FieldAccess) (any, error) {
 		return nil, fmt.Errorf("empty field access in where")
 	}
 
+	obj, err := c.requireCurrentObj()
+	if err != nil {
+		return nil, err
+	}
+
 	fieldName := fa.Chain[0]
-	fd, ok := c.empObj.FieldsByAPIName[fieldName]
+	fd, ok := obj.FieldsByAPIName[fieldName]
 	if !ok {
-		return nil, fmt.Errorf("unknown field %q", fieldName)
+		return nil, fmt.Errorf("unknown field %q on %s", fieldName, obj.APIName)
 	}
 
 	if len(fa.Chain) == 1 {
@@ -290,7 +295,10 @@ func (c *Compiler) tryCompileStringOp(pipe *parser.PipeExpr) (Condition, bool) {
 	if len(fa.Chain) == 0 {
 		return nil, false
 	}
-	if _, ok := c.empObj.FieldsByAPIName[fa.Chain[0]]; !ok {
+	if c.currentObj == nil {
+		return nil, false
+	}
+	if _, ok := c.currentObj.FieldsByAPIName[fa.Chain[0]]; !ok {
 		return nil, false
 	}
 

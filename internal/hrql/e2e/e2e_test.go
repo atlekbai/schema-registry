@@ -75,31 +75,40 @@ func buildCache() *schema.Cache {
 
 // pipeline runs the full HRQL pipeline: Parse → Compile → Translate.
 // Returns plan, SQLResult (for list/scalar), or boolSQL+boolArgs (for boolean).
-func pipeline(t *testing.T, input, selfID string) (*hrql.Plan, *pg.SQLResult, string, []any) {
+// selfObject defaults to "employees" if empty.
+func pipeline(t *testing.T, input, selfID string, selfObject ...string) (*hrql.Plan, *pg.SQLResult, string, []any) {
 	t.Helper()
+
+	so := ""
+	if len(selfObject) > 0 {
+		so = selfObject[0]
+	}
 
 	ast, err := parser.Parse(input)
 	if err != nil {
 		t.Fatalf("parse %q: %v", input, err)
 	}
 
-	comp := hrql.NewCompiler(testCache, selfID)
+	comp := hrql.NewCompiler(testCache, selfID, so)
 	plan, err := comp.Compile(ast)
 	if err != nil {
 		t.Fatalf("compile %q: %v", input, err)
 	}
 
-	empObj := testCache.Get("employees")
+	obj := testCache.Get(plan.ObjectAPIName)
+	if obj == nil {
+		obj = testCache.Get("employees")
+	}
 
 	if plan.Kind == hrql.PlanBoolean {
-		sql, args, err := pg.TranslateBooleanPlan(plan, empObj)
+		sql, args, err := pg.TranslateBooleanPlan(plan, obj)
 		if err != nil {
 			t.Fatalf("translate boolean %q: %v", input, err)
 		}
 		return plan, nil, sql, args
 	}
 
-	result, err := pg.Translate(plan, empObj, testCache)
+	result, err := pg.Translate(plan, obj, testCache)
 	if err != nil {
 		t.Fatalf("translate %q: %v", input, err)
 	}
@@ -107,26 +116,34 @@ func pipeline(t *testing.T, input, selfID string) (*hrql.Plan, *pg.SQLResult, st
 }
 
 // pipelineErr runs the pipeline expecting an error.
-func pipelineErr(input, selfID string) error {
+func pipelineErr(input, selfID string, selfObject ...string) error {
+	so := ""
+	if len(selfObject) > 0 {
+		so = selfObject[0]
+	}
+
 	ast, err := parser.Parse(input)
 	if err != nil {
 		return err
 	}
 
-	comp := hrql.NewCompiler(testCache, selfID)
+	comp := hrql.NewCompiler(testCache, selfID, so)
 	plan, err := comp.Compile(ast)
 	if err != nil {
 		return err
 	}
 
-	empObj := testCache.Get("employees")
+	obj := testCache.Get(plan.ObjectAPIName)
+	if obj == nil {
+		obj = testCache.Get("employees")
+	}
 
 	if plan.Kind == hrql.PlanBoolean {
-		_, _, err = pg.TranslateBooleanPlan(plan, empObj)
+		_, _, err = pg.TranslateBooleanPlan(plan, obj)
 		return err
 	}
 
-	_, err = pg.Translate(plan, empObj, testCache)
+	_, err = pg.Translate(plan, obj, testCache)
 	return err
 }
 
@@ -713,7 +730,7 @@ func TestErrors(t *testing.T) {
 	}{
 		{"no self_id", `self`, "", "self_id"},
 		{"unknown field", `employees | where(.nonexistent == "val")`, "", "nonexistent"},
-		{"unknown identifier", `departments`, "", "departments"},
+		{"unknown identifier", `nonexistent_obj`, "", "unknown object"},
 		{"sort unknown field", `employees | sort_by(.nonexistent, asc)`, "", "nonexistent"},
 		{"field access no source", `.employment_type`, "", ""},
 		{"contains outside where", `employees | contains("test")`, "", "where"},
@@ -826,4 +843,82 @@ func TestReversedComparison(t *testing.T) {
 	assertContains(t, sql, `>`)
 	assertArgCount(t, args, 1)
 	assertArgEquals(t, args, 0, "2024-01-01")
+}
+
+// --- Test: generic object support ---
+
+func TestDepartmentsFullScan(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `departments`, "")
+
+	if plan.Kind != hrql.PlanList {
+		t.Fatalf("expected PlanList, got %v", plan.Kind)
+	}
+	if plan.ObjectAPIName != "departments" {
+		t.Fatalf("expected ObjectAPIName=departments, got %q", plan.ObjectAPIName)
+	}
+	if len(result.Conditions) != 0 {
+		t.Fatalf("expected 0 conditions, got %d", len(result.Conditions))
+	}
+}
+
+func TestDepartmentsWhereField(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `departments | where(.title == "Engineering")`, "")
+
+	if plan.ObjectAPIName != "departments" {
+		t.Fatalf("expected ObjectAPIName=departments, got %q", plan.ObjectAPIName)
+	}
+	if len(result.Conditions) != 1 {
+		t.Fatalf("expected 1 condition, got %d", len(result.Conditions))
+	}
+
+	sql, args := condToSQL(t, result.Conditions[0])
+	assertContains(t, sql, `"title"`)
+	assertArgCount(t, args, 1)
+	assertArgEquals(t, args, 0, "Engineering")
+}
+
+func TestDepartmentsCount(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `departments | count`, "")
+
+	if plan.Kind != hrql.PlanScalar {
+		t.Fatalf("expected PlanScalar, got %v", plan.Kind)
+	}
+	if plan.ObjectAPIName != "departments" {
+		t.Fatalf("expected ObjectAPIName=departments, got %q", plan.ObjectAPIName)
+	}
+	assertContains(t, result.AggSQL, `count(*)`)
+	assertContains(t, result.AggSQL, `"core"."departments"`)
+}
+
+func TestSelfWithDepartmentsObject(t *testing.T) {
+	plan, _, _, _ := pipeline(t, `self`, selfUUID, "departments")
+
+	if plan.ObjectAPIName != "departments" {
+		t.Fatalf("expected ObjectAPIName=departments, got %q", plan.ObjectAPIName)
+	}
+}
+
+func TestEmployeesObjectAPIName(t *testing.T) {
+	plan, _, _, _ := pipeline(t, `employees`, "")
+
+	if plan.ObjectAPIName != "employees" {
+		t.Fatalf("expected ObjectAPIName=employees, got %q", plan.ObjectAPIName)
+	}
+}
+
+func TestOrgFunctionSetsEmployeesObject(t *testing.T) {
+	plan, _, _, _ := pipeline(t, fmt.Sprintf(`reports("%s")`, targetUUID), "")
+
+	if plan.ObjectAPIName != "employees" {
+		t.Fatalf("expected ObjectAPIName=employees, got %q", plan.ObjectAPIName)
+	}
+}
+
+func TestDepartmentsUnknownFieldError(t *testing.T) {
+	err := pipelineErr(`departments | where(.nonexistent == "val")`, "")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	assertContains(t, err.Error(), "nonexistent")
+	assertContains(t, err.Error(), "departments")
 }

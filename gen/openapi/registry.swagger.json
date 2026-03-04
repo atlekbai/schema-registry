@@ -850,6 +850,10 @@
         "selfId": {
           "type": "string",
           "description": "UUID of the employee context (the \"self\" pronoun). Required when query references \"self\"."
+        },
+        "selfObject": {
+          "type": "string",
+          "description": "API name of the object type for \"self\" (defaults to \"employees\" if empty)."
         }
       }
     },
@@ -877,6 +881,10 @@
         "scalar": {
           "type": "string",
           "description": "Scalar result (aggregation output like count, avg, sum, min, max)."
+        },
+        "resultObject": {
+          "type": "string",
+          "description": "API name of the object type in the results (e.g. \"employees\", \"departments\")."
         }
       }
     },

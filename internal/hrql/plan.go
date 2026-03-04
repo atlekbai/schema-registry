@@ -14,7 +14,8 @@ const (
 // Plan is the storage-agnostic output of compiling an HRQL expression.
 // It captures what the query means, not how to execute it in SQL.
 type Plan struct {
-	Kind PlanKind
+	Kind          PlanKind
+	ObjectAPIName string // API name of the source object (e.g. "employees", "departments")
 
 	// PlanList fields
 	Conditions []Condition // top-level conditions, AND'd together

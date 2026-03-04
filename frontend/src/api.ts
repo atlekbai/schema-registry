@@ -166,18 +166,19 @@ export interface OrgQueryResponse {
   nextCursor?: string | null
   reportsTo?: boolean
   scalar?: string
+  resultObject?: string
 }
 
 export async function orgQuery(
   query: string,
-  opts: { select?: string; expand?: string; limit?: number; cursor?: string; selfId?: string } = {},
+  opts: { select?: string; expand?: string; limit?: number; cursor?: string; selfId?: string; selfObject?: string } = {},
 ): Promise<OrgQueryResponse> {
-  const { selfId, ...rest } = opts
+  const { selfId, selfObject, ...rest } = opts
   return jsonOrThrow<OrgQueryResponse>(
     await fetch('/api/org/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, self_id: selfId, ...rest }),
+      body: JSON.stringify({ query, self_id: selfId, self_object: selfObject, ...rest }),
     }),
   )
 }

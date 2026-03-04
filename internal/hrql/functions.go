@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/atlekbai/schema_registry/internal/hrql/parser"
+	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
 // SourceCall compiles a function at source position into a Plan.
@@ -53,7 +54,22 @@ func (c *Compiler) applyFuncInPipe(plan *Plan, fn *parser.FuncCall) (*Plan, erro
 
 // --- Source function implementations ---
 
+// requireEmployeesObj ensures the employees object is in the cache
+// and sets currentObj to it. All org functions produce employee results.
+func (c *Compiler) requireEmployeesObj(funcName string) (*schema.ObjectDef, error) {
+	obj := c.cache.Get("employees")
+	if obj == nil {
+		return nil, fmt.Errorf("%s() requires employees object in schema cache", funcName)
+	}
+	c.currentObj = obj
+	return obj, nil
+}
+
 func (c *Compiler) compileChain(fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("chain"); err != nil {
+		return nil, err
+	}
+
 	ref, err := c.resolveEmployeeArg(fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("chain arg 1: %w", err)
@@ -74,10 +90,14 @@ func (c *Compiler) compileChain(fn *parser.FuncCall) (*Plan, error) {
 		cond = OrgChainUp{Emp: ref, Steps: depth}
 	}
 
-	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
+	return &Plan{Kind: PlanList, ObjectAPIName: "employees", Conditions: []Condition{cond}}, nil
 }
 
 func (c *Compiler) compileReports(fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("reports"); err != nil {
+		return nil, err
+	}
+
 	ref, err := c.resolveEmployeeArg(fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("reports arg 1: %w", err)
@@ -98,22 +118,32 @@ func (c *Compiler) compileReports(fn *parser.FuncCall) (*Plan, error) {
 		cond = OrgChainDown{Emp: ref, Depth: depth}
 	}
 
-	return &Plan{Kind: PlanList, Conditions: []Condition{cond}}, nil
+	return &Plan{Kind: PlanList, ObjectAPIName: "employees", Conditions: []Condition{cond}}, nil
 }
 
 func (c *Compiler) compilePeers(fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("peers"); err != nil {
+		return nil, err
+	}
+
 	ref, err := c.resolveEmployeeArg(fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("peers arg 1: %w", err)
 	}
 
 	return &Plan{
-		Kind:       PlanList,
-		Conditions: []Condition{SameFieldCond{Field: "manager", Emp: ref}},
+		Kind:          PlanList,
+		ObjectAPIName: "employees",
+		Conditions:    []Condition{SameFieldCond{Field: "manager", Emp: ref}},
 	}, nil
 }
 
 func (c *Compiler) compileColleagues(fn *parser.FuncCall) (*Plan, error) {
+	empObj, err := c.requireEmployeesObj("colleagues")
+	if err != nil {
+		return nil, err
+	}
+
 	ref, err := c.resolveEmployeeArg(fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("colleagues arg 1: %w", err)
@@ -128,17 +158,22 @@ func (c *Compiler) compileColleagues(fn *parser.FuncCall) (*Plan, error) {
 	}
 
 	fieldName := fa.Chain[0]
-	if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
-		return nil, fmt.Errorf("colleagues arg 2: unknown field %q", fieldName)
+	if _, ok := empObj.FieldsByAPIName[fieldName]; !ok {
+		return nil, fmt.Errorf("colleagues arg 2: unknown field %q on employees", fieldName)
 	}
 
 	return &Plan{
-		Kind:       PlanList,
-		Conditions: []Condition{SameFieldCond{Field: fieldName, Emp: ref}},
+		Kind:          PlanList,
+		ObjectAPIName: "employees",
+		Conditions:    []Condition{SameFieldCond{Field: fieldName, Emp: ref}},
 	}, nil
 }
 
 func (c *Compiler) compileReportsTo(fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("reports_to"); err != nil {
+		return nil, err
+	}
+
 	empRef, err := c.resolveEmployeeArg(fn.Args[0])
 	if err != nil {
 		return nil, fmt.Errorf("reports_to arg 1: %w", err)
@@ -151,6 +186,7 @@ func (c *Compiler) compileReportsTo(fn *parser.FuncCall) (*Plan, error) {
 
 	return &Plan{
 		Kind:          PlanBoolean,
+		ObjectAPIName: "employees",
 		BoolCondition: ReportsToCheck{Emp: empRef, Target: tgtRef},
 	}, nil
 }

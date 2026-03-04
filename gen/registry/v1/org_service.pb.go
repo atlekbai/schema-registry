@@ -35,7 +35,9 @@ type QueryRequest struct {
 	Limit  int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
 	Cursor string `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	// UUID of the employee context (the "self" pronoun). Required when query references "self".
-	SelfId        string `protobuf:"bytes,7,opt,name=self_id,json=selfId,proto3" json:"self_id,omitempty"`
+	SelfId string `protobuf:"bytes,7,opt,name=self_id,json=selfId,proto3" json:"self_id,omitempty"`
+	// API name of the object type for "self" (defaults to "employees" if empty).
+	SelfObject    string `protobuf:"bytes,8,opt,name=self_object,json=selfObject,proto3" json:"self_object,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -119,6 +121,13 @@ func (x *QueryRequest) GetSelfId() string {
 	return ""
 }
 
+func (x *QueryRequest) GetSelfObject() string {
+	if x != nil {
+		return x.SelfObject
+	}
+	return ""
+}
+
 type QueryResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// List results (org functions, employees | where).
@@ -128,7 +137,9 @@ type QueryResponse struct {
 	// Boolean result (reports_to).
 	ReportsTo *bool `protobuf:"varint,4,opt,name=reports_to,json=reportsTo,proto3,oneof" json:"reports_to,omitempty"`
 	// Scalar result (aggregation output like count, avg, sum, min, max).
-	Scalar        *string `protobuf:"bytes,5,opt,name=scalar,proto3,oneof" json:"scalar,omitempty"`
+	Scalar *string `protobuf:"bytes,5,opt,name=scalar,proto3,oneof" json:"scalar,omitempty"`
+	// API name of the object type in the results (e.g. "employees", "departments").
+	ResultObject  string `protobuf:"bytes,6,opt,name=result_object,json=resultObject,proto3" json:"result_object,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -198,11 +209,18 @@ func (x *QueryResponse) GetScalar() string {
 	return ""
 }
 
+func (x *QueryResponse) GetResultObject() string {
+	if x != nil {
+		return x.ResultObject
+	}
+	return ""
+}
+
 var File_registry_v1_org_service_proto protoreflect.FileDescriptor
 
 const file_registry_v1_org_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1dregistry/v1/org_service.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xc6\x01\n" +
+	"\x1dregistry/v1/org_service.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xe7\x01\n" +
 	"\fQueryRequest\x12\x1d\n" +
 	"\x05query\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x05query\x12\x16\n" +
 	"\x06select\x18\x02 \x01(\tR\x06select\x12\x16\n" +
@@ -211,7 +229,9 @@ const file_registry_v1_org_service_proto_rawDesc = "" +
 	"\x05limit\x18\x05 \x01(\x05B\n" +
 	"\xbaH\a\x1a\x05\x18\xc8\x01(\x00R\x05limit\x12\x16\n" +
 	"\x06cursor\x18\x06 \x01(\tR\x06cursor\x12\x17\n" +
-	"\aself_id\x18\a \x01(\tR\x06selfId\"\xf4\x01\n" +
+	"\aself_id\x18\a \x01(\tR\x06selfId\x12\x1f\n" +
+	"\vself_object\x18\b \x01(\tR\n" +
+	"selfObject\"\x99\x02\n" +
 	"\rQueryResponse\x121\n" +
 	"\aresults\x18\x01 \x03(\v2\x17.google.protobuf.StructR\aresults\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
@@ -220,7 +240,8 @@ const file_registry_v1_org_service_proto_rawDesc = "" +
 	"nextCursor\x88\x01\x01\x12\"\n" +
 	"\n" +
 	"reports_to\x18\x04 \x01(\bH\x01R\treportsTo\x88\x01\x01\x12\x1b\n" +
-	"\x06scalar\x18\x05 \x01(\tH\x02R\x06scalar\x88\x01\x01B\x0e\n" +
+	"\x06scalar\x18\x05 \x01(\tH\x02R\x06scalar\x88\x01\x01\x12#\n" +
+	"\rresult_object\x18\x06 \x01(\tR\fresultObjectB\x0e\n" +
 	"\f_next_cursorB\r\n" +
 	"\v_reports_toB\t\n" +
 	"\a_scalar2g\n" +

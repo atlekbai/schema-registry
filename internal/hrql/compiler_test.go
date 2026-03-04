@@ -147,7 +147,7 @@ func TestJoinChain(t *testing.T) {
 func TestTryCompileStringOp(t *testing.T) {
 	obj := testEmployeesObj()
 	cache := &schema.Cache{}
-	c := &Compiler{cache: cache, empObj: obj}
+	c := &Compiler{cache: cache, currentObj: obj}
 
 	tests := []struct {
 		name   string
@@ -188,7 +188,7 @@ func TestTryCompileStringOp(t *testing.T) {
 
 func TestTryCompileStringOpNoMatch(t *testing.T) {
 	obj := testEmployeesObj()
-	c := &Compiler{empObj: obj}
+	c := &Compiler{currentObj: obj}
 
 	pipe := &parser.PipeExpr{Steps: []parser.Node{
 		&parser.FieldAccess{Chain: []string{"employment_type"}},

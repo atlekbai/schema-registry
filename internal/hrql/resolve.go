@@ -31,10 +31,14 @@ func (c *Compiler) resolveEmployeeArg(arg parser.Node) (EmployeeRef, error) {
 					if len(fa.Chain) == 0 {
 						return EmployeeRef{}, fmt.Errorf("empty field access")
 					}
-					// Validate all fields in the chain exist.
+					// Validate all fields in the chain exist against the self object.
+					obj := c.selfObj
+					if obj == nil {
+						return EmployeeRef{}, fmt.Errorf("self object type not found in schema cache")
+					}
 					for _, fieldName := range fa.Chain {
-						if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
-							return EmployeeRef{}, fmt.Errorf("unknown field %q", fieldName)
+						if _, ok := obj.FieldsByAPIName[fieldName]; !ok {
+							return EmployeeRef{}, fmt.Errorf("unknown field %q on %s", fieldName, obj.APIName)
 						}
 					}
 					return EmployeeRef{ID: c.selfID, Chain: fa.Chain}, nil

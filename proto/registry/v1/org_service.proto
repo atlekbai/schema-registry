@@ -28,6 +28,8 @@ message QueryRequest {
   string cursor = 6;
   // UUID of the employee context (the "self" pronoun). Required when query references "self".
   string self_id = 7;
+  // API name of the object type for "self" (defaults to "employees" if empty).
+  string self_object = 8;
 }
 
 message QueryResponse {
@@ -39,4 +41,6 @@ message QueryResponse {
   optional bool reports_to = 4;
   // Scalar result (aggregation output like count, avg, sum, min, max).
   optional string scalar = 5;
+  // API name of the object type in the results (e.g. "employees", "departments").
+  string result_object = 6;
 }

@@ -9,25 +9,27 @@ import (
 
 // Compiler compiles an HRQL AST into a Plan.
 type Compiler struct {
-	cache  *schema.Cache
-	selfID string
-	empObj *schema.ObjectDef
+	cache      *schema.Cache
+	selfID     string
+	selfObj    *schema.ObjectDef // object type for "self" (nil if selfObject is empty)
+	currentObj *schema.ObjectDef // current object flowing through the pipeline
 }
 
 // NewCompiler creates a compiler for HRQL expressions.
-func NewCompiler(cache *schema.Cache, selfID string) *Compiler {
+// selfObject is the API name of the object type for "self" (defaults to "employees" if empty).
+func NewCompiler(cache *schema.Cache, selfID, selfObject string) *Compiler {
+	if selfObject == "" {
+		selfObject = "employees"
+	}
 	return &Compiler{
-		cache:  cache,
-		selfID: selfID,
-		empObj: cache.Get("employees"),
+		cache:   cache,
+		selfID:  selfID,
+		selfObj: cache.Get(selfObject),
 	}
 }
 
 // Compile compiles an AST node into a storage-agnostic Plan.
 func (c *Compiler) Compile(node parser.Node) (*Plan, error) {
-	if c.empObj == nil {
-		return nil, fmt.Errorf("employees object not found in schema cache")
-	}
 	return c.compileNode(node)
 }
 
@@ -95,26 +97,39 @@ func (c *Compiler) applyStep(plan *Plan, step parser.Node) (*Plan, error) {
 	}
 }
 
-// compileSelf: the `self` employee — filter by ID.
+// compileSelf: the `self` object — filter by ID.
 func (c *Compiler) compileSelf() (*Plan, error) {
 	if c.selfID == "" {
 		return nil, fmt.Errorf("`self` requires self_id in the request")
 	}
+	if c.selfObj == nil {
+		return nil, fmt.Errorf("self object type not found in schema cache")
+	}
+	c.currentObj = c.selfObj
 	return &Plan{
-		Kind:       PlanList,
-		Conditions: []Condition{IdentityFilter{ID: c.selfID}},
-		Limit:      1,
+		Kind:          PlanList,
+		ObjectAPIName: c.selfObj.APIName,
+		Conditions:    []Condition{IdentityFilter{ID: c.selfID}},
+		Limit:         1,
 	}, nil
 }
 
-// compileIdent: `employees` → full scan.
+// compileIdent: `employees`, `departments`, etc. → full scan of any registered object.
 func (c *Compiler) compileIdent(n *parser.IdentExpr) (*Plan, error) {
-	switch n.Name {
-	case "employees":
-		return &Plan{Kind: PlanList}, nil
-	default:
-		return nil, fmt.Errorf("unknown identifier %q", n.Name)
+	obj := c.cache.Get(n.Name)
+	if obj == nil {
+		return nil, fmt.Errorf("unknown object %q", n.Name)
 	}
+	c.currentObj = obj
+	return &Plan{Kind: PlanList, ObjectAPIName: obj.APIName}, nil
+}
+
+// requireCurrentObj returns the current object or an error if none is set.
+func (c *Compiler) requireCurrentObj() (*schema.ObjectDef, error) {
+	if c.currentObj == nil {
+		return nil, fmt.Errorf("no source object; start with an object name (e.g. employees) or self")
+	}
+	return c.currentObj, nil
 }
 
 // --- Step application ---
@@ -127,9 +142,14 @@ func (c *Compiler) applyFieldAccess(plan *Plan, fa *parser.FieldAccess) (*Plan, 
 		return nil, fmt.Errorf("empty field access")
 	}
 
-	fd, ok := c.empObj.FieldsByAPIName[fa.Chain[0]]
+	obj, err := c.requireCurrentObj()
+	if err != nil {
+		return nil, err
+	}
+
+	fd, ok := obj.FieldsByAPIName[fa.Chain[0]]
 	if !ok {
-		return nil, fmt.Errorf("unknown field %q on employees", fa.Chain[0])
+		return nil, fmt.Errorf("unknown field %q on %s", fa.Chain[0], obj.APIName)
 	}
 
 	// For LOOKUP fields with deeper chains, tracked for service layer.
@@ -162,8 +182,13 @@ func (c *Compiler) applySort(plan *Plan, s *parser.SortExpr) (*Plan, error) {
 		return nil, fmt.Errorf("sort_by: empty field")
 	}
 
+	obj, err := c.requireCurrentObj()
+	if err != nil {
+		return nil, err
+	}
+
 	fieldName := s.Field.Chain[0]
-	if _, ok := c.empObj.FieldsByAPIName[fieldName]; !ok {
+	if _, ok := obj.FieldsByAPIName[fieldName]; !ok {
 		return nil, fmt.Errorf("sort_by: unknown field %q", fieldName)
 	}
 

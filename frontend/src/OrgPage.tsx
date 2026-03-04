@@ -377,6 +377,45 @@ export default function OrgPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const suggestionsRef = useRef<HTMLDivElement>(null)
 
+  // Resizable sidebar
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('org-sidebar-width')
+    return saved ? Number(saved) : 420
+  })
+  const draggingRef = useRef(false)
+  const handleRef = useRef<HTMLDivElement>(null)
+  const widthRef = useRef(sidebarWidth)
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      const newWidth = Math.min(Math.max(e.clientX - 16, 200), 800)
+      widthRef.current = newWidth
+      setSidebarWidth(newWidth)
+    }
+    const onMouseUp = () => {
+      if (!draggingRef.current) return
+      draggingRef.current = false
+      handleRef.current?.classList.remove('dragging')
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      localStorage.setItem('org-sidebar-width', String(widthRef.current))
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
+  const startResize = useCallback(() => {
+    draggingRef.current = true
+    handleRef.current?.classList.add('dragging')
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [])
+
   // Load employees on mount
   useEffect(() => {
     fetch(`/api/employees?limit=200&select=${SELECT}&expand=${EXPAND}`)
@@ -546,7 +585,7 @@ export default function OrgPage() {
   return (
     <div className="org-layout">
       {/* ── Left: Org Tree ── */}
-      <div className="org-tree-panel">
+      <div className="org-tree-panel" style={{ width: sidebarWidth }}>
         <div className="org-tree-header">
           <h3>Organization</h3>
           <span className="org-tree-count">{employees.length}</span>
@@ -567,6 +606,13 @@ export default function OrgPage() {
           )}
         </div>
       </div>
+
+      {/* ── Resize handle ── */}
+      <div
+        ref={handleRef}
+        className="org-resize-handle"
+        onMouseDown={startResize}
+      />
 
       {/* ── Right: Editor + Results ── */}
       <div className="org-main">
