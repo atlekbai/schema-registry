@@ -20,12 +20,7 @@ service OrgService {
 message QueryRequest {
   // HRQL expression, e.g. "reports(self, 1) | where(.employment_type == \"FULL_TIME\") | count".
   string query = 1 [(buf.validate.field).string.min_len = 1];
-  // Optional list parameters (ignored by scalar/boolean results).
-  string select = 2;
-  string expand = 3;
-  string order = 4;
-  int32 limit = 5 [(buf.validate.field).int32 = {gte: 0, lte: 200}];
-  string cursor = 6;
+  reserved 2, 3, 4, 5, 6;
   // UUID of the employee context (the "self" pronoun). Required when query references "self".
   string self_id = 7;
   // API name of the object type for "self" (defaults to "employees" if empty).
@@ -36,7 +31,7 @@ message QueryResponse {
   // List results (org functions, employees | where).
   repeated google.protobuf.Struct results = 1;
   int64 total_count = 2;
-  optional string next_cursor = 3;
+  reserved 3;
   // Boolean result (reports_to).
   optional bool reports_to = 4;
   // Scalar result (aggregation output like count, avg, sum, min, max).

@@ -28,12 +28,6 @@ type QueryRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// HRQL expression, e.g. "reports(self, 1) | where(.employment_type == \"FULL_TIME\") | count".
 	Query string `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
-	// Optional list parameters (ignored by scalar/boolean results).
-	Select string `protobuf:"bytes,2,opt,name=select,proto3" json:"select,omitempty"`
-	Expand string `protobuf:"bytes,3,opt,name=expand,proto3" json:"expand,omitempty"`
-	Order  string `protobuf:"bytes,4,opt,name=order,proto3" json:"order,omitempty"`
-	Limit  int32  `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
-	Cursor string `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	// UUID of the employee context (the "self" pronoun). Required when query references "self".
 	SelfId string `protobuf:"bytes,7,opt,name=self_id,json=selfId,proto3" json:"self_id,omitempty"`
 	// API name of the object type for "self" (defaults to "employees" if empty).
@@ -79,41 +73,6 @@ func (x *QueryRequest) GetQuery() string {
 	return ""
 }
 
-func (x *QueryRequest) GetSelect() string {
-	if x != nil {
-		return x.Select
-	}
-	return ""
-}
-
-func (x *QueryRequest) GetExpand() string {
-	if x != nil {
-		return x.Expand
-	}
-	return ""
-}
-
-func (x *QueryRequest) GetOrder() string {
-	if x != nil {
-		return x.Order
-	}
-	return ""
-}
-
-func (x *QueryRequest) GetLimit() int32 {
-	if x != nil {
-		return x.Limit
-	}
-	return 0
-}
-
-func (x *QueryRequest) GetCursor() string {
-	if x != nil {
-		return x.Cursor
-	}
-	return ""
-}
-
 func (x *QueryRequest) GetSelfId() string {
 	if x != nil {
 		return x.SelfId
@@ -133,7 +92,6 @@ type QueryResponse struct {
 	// List results (org functions, employees | where).
 	Results    []*structpb.Struct `protobuf:"bytes,1,rep,name=results,proto3" json:"results,omitempty"`
 	TotalCount int64              `protobuf:"varint,2,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
-	NextCursor *string            `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3,oneof" json:"next_cursor,omitempty"`
 	// Boolean result (reports_to).
 	ReportsTo *bool `protobuf:"varint,4,opt,name=reports_to,json=reportsTo,proto3,oneof" json:"reports_to,omitempty"`
 	// Scalar result (aggregation output like count, avg, sum, min, max).
@@ -188,13 +146,6 @@ func (x *QueryResponse) GetTotalCount() int64 {
 	return 0
 }
 
-func (x *QueryResponse) GetNextCursor() string {
-	if x != nil && x.NextCursor != nil {
-		return *x.NextCursor
-	}
-	return ""
-}
-
 func (x *QueryResponse) GetReportsTo() bool {
 	if x != nil && x.ReportsTo != nil {
 		return *x.ReportsTo
@@ -220,31 +171,22 @@ var File_registry_v1_org_service_proto protoreflect.FileDescriptor
 
 const file_registry_v1_org_service_proto_rawDesc = "" +
 	"\n" +
-	"\x1dregistry/v1/org_service.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xe7\x01\n" +
+	"\x1dregistry/v1/org_service.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/api/annotations.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x85\x01\n" +
 	"\fQueryRequest\x12\x1d\n" +
-	"\x05query\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x05query\x12\x16\n" +
-	"\x06select\x18\x02 \x01(\tR\x06select\x12\x16\n" +
-	"\x06expand\x18\x03 \x01(\tR\x06expand\x12\x14\n" +
-	"\x05order\x18\x04 \x01(\tR\x05order\x12 \n" +
-	"\x05limit\x18\x05 \x01(\x05B\n" +
-	"\xbaH\a\x1a\x05\x18\xc8\x01(\x00R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\x06 \x01(\tR\x06cursor\x12\x17\n" +
+	"\x05query\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x05query\x12\x17\n" +
 	"\aself_id\x18\a \x01(\tR\x06selfId\x12\x1f\n" +
 	"\vself_object\x18\b \x01(\tR\n" +
-	"selfObject\"\x99\x02\n" +
+	"selfObjectJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05J\x04\b\x05\x10\x06J\x04\b\x06\x10\a\"\xe9\x01\n" +
 	"\rQueryResponse\x121\n" +
 	"\aresults\x18\x01 \x03(\v2\x17.google.protobuf.StructR\aresults\x12\x1f\n" +
 	"\vtotal_count\x18\x02 \x01(\x03R\n" +
-	"totalCount\x12$\n" +
-	"\vnext_cursor\x18\x03 \x01(\tH\x00R\n" +
-	"nextCursor\x88\x01\x01\x12\"\n" +
+	"totalCount\x12\"\n" +
 	"\n" +
-	"reports_to\x18\x04 \x01(\bH\x01R\treportsTo\x88\x01\x01\x12\x1b\n" +
-	"\x06scalar\x18\x05 \x01(\tH\x02R\x06scalar\x88\x01\x01\x12#\n" +
-	"\rresult_object\x18\x06 \x01(\tR\fresultObjectB\x0e\n" +
-	"\f_next_cursorB\r\n" +
+	"reports_to\x18\x04 \x01(\bH\x00R\treportsTo\x88\x01\x01\x12\x1b\n" +
+	"\x06scalar\x18\x05 \x01(\tH\x01R\x06scalar\x88\x01\x01\x12#\n" +
+	"\rresult_object\x18\x06 \x01(\tR\fresultObjectB\r\n" +
 	"\v_reports_toB\t\n" +
-	"\a_scalar2g\n" +
+	"\a_scalarJ\x04\b\x03\x10\x042g\n" +
 	"\n" +
 	"OrgService\x12Y\n" +
 	"\x05Query\x12\x19.registry.v1.QueryRequest\x1a\x1a.registry.v1.QueryResponse\"\x19\x82\xd3\xe4\x93\x02\x13:\x01*\"\x0e/api/org/queryB\xaf\x01\n" +

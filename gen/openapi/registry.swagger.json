@@ -435,13 +435,6 @@
             "format": "int32"
           },
           {
-            "name": "cursor",
-            "description": "Opaque cursor token from a previous response.",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          },
-          {
             "name": "filters",
             "description": "Filters keyed by field API name, values in \"op.value\" format (e.g. \"eq.active\").",
             "in": "query",
@@ -764,9 +757,6 @@
           "type": "string",
           "format": "int64"
         },
-        "nextCursor": {
-          "type": "string"
-        },
         "results": {
           "type": "array",
           "items": {
@@ -830,23 +820,6 @@
           "type": "string",
           "description": "HRQL expression, e.g. \"reports(self, 1) | where(.employment_type == \\\"FULL_TIME\\\") | count\"."
         },
-        "select": {
-          "type": "string",
-          "description": "Optional list parameters (ignored by scalar/boolean results)."
-        },
-        "expand": {
-          "type": "string"
-        },
-        "order": {
-          "type": "string"
-        },
-        "limit": {
-          "type": "integer",
-          "format": "int32"
-        },
-        "cursor": {
-          "type": "string"
-        },
         "selfId": {
           "type": "string",
           "description": "UUID of the employee context (the \"self\" pronoun). Required when query references \"self\"."
@@ -870,9 +843,6 @@
         "totalCount": {
           "type": "string",
           "format": "int64"
-        },
-        "nextCursor": {
-          "type": "string"
         },
         "reportsTo": {
           "type": "boolean",

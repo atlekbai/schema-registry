@@ -2,15 +2,9 @@ package schema
 
 import (
 	"encoding/json"
-	"strings"
 
 	"github.com/google/uuid"
 )
-
-// QuoteIdent quotes a SQL identifier, escaping embedded double quotes.
-func QuoteIdent(name string) string {
-	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
-}
 
 type FieldType string
 
@@ -63,10 +57,3 @@ type ObjectDef struct {
 	FieldsByAPIName      map[string]*FieldDef
 }
 
-// TableName returns the fully qualified, quoted table name for standard objects.
-func (o *ObjectDef) TableName() string {
-	if o.StorageSchema != nil && o.StorageTable != nil {
-		return QuoteIdent(*o.StorageSchema) + "." + QuoteIdent(*o.StorageTable)
-	}
-	return ""
-}

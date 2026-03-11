@@ -35,8 +35,6 @@ type ListRequest struct {
 	Order string `protobuf:"bytes,4,opt,name=order,proto3" json:"order,omitempty"`
 	// Page size (0-200, 0 means server default).
 	Limit int32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
-	// Opaque cursor token from a previous response.
-	Cursor string `protobuf:"bytes,6,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	// Filters keyed by field API name, values in "op.value" format (e.g. "eq.active").
 	Filters       map[string]string `protobuf:"bytes,7,rep,name=filters,proto3" json:"filters,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
@@ -108,13 +106,6 @@ func (x *ListRequest) GetLimit() int32 {
 	return 0
 }
 
-func (x *ListRequest) GetCursor() string {
-	if x != nil {
-		return x.Cursor
-	}
-	return ""
-}
-
 func (x *ListRequest) GetFilters() map[string]string {
 	if x != nil {
 		return x.Filters
@@ -125,7 +116,6 @@ func (x *ListRequest) GetFilters() map[string]string {
 type ListResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TotalCount    int64                  `protobuf:"varint,1,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
-	NextCursor    *string                `protobuf:"bytes,2,opt,name=next_cursor,json=nextCursor,proto3,oneof" json:"next_cursor,omitempty"`
 	Results       []*structpb.Struct     `protobuf:"bytes,3,rep,name=results,proto3" json:"results,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -166,13 +156,6 @@ func (x *ListResponse) GetTotalCount() int64 {
 		return x.TotalCount
 	}
 	return 0
-}
-
-func (x *ListResponse) GetNextCursor() string {
-	if x != nil && x.NextCursor != nil {
-		return *x.NextCursor
-	}
-	return ""
 }
 
 func (x *ListResponse) GetResults() []*structpb.Struct {
@@ -302,7 +285,7 @@ var File_registry_v1_registry_proto protoreflect.FileDescriptor
 
 const file_registry_v1_registry_proto_rawDesc = "" +
 	"\n" +
-	"\x1aregistry/v1/registry.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xb4\x02\n" +
+	"\x1aregistry/v1/registry.proto\x12\vregistry.v1\x1a\x1bbuf/validate/validate.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xa2\x02\n" +
 	"\vListRequest\x12(\n" +
 	"\vobject_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\n" +
 	"objectName\x12\x16\n" +
@@ -310,19 +293,15 @@ const file_registry_v1_registry_proto_rawDesc = "" +
 	"\x06expand\x18\x03 \x01(\tR\x06expand\x12\x14\n" +
 	"\x05order\x18\x04 \x01(\tR\x05order\x12 \n" +
 	"\x05limit\x18\x05 \x01(\x05B\n" +
-	"\xbaH\a\x1a\x05\x18\xc8\x01(\x00R\x05limit\x12\x16\n" +
-	"\x06cursor\x18\x06 \x01(\tR\x06cursor\x12?\n" +
+	"\xbaH\a\x1a\x05\x18\xc8\x01(\x00R\x05limit\x12?\n" +
 	"\afilters\x18\a \x03(\v2%.registry.v1.ListRequest.FiltersEntryR\afilters\x1a:\n" +
 	"\fFiltersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x98\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x06\x10\a\"h\n" +
 	"\fListResponse\x12\x1f\n" +
 	"\vtotal_count\x18\x01 \x01(\x03R\n" +
-	"totalCount\x12$\n" +
-	"\vnext_cursor\x18\x02 \x01(\tH\x00R\n" +
-	"nextCursor\x88\x01\x01\x121\n" +
-	"\aresults\x18\x03 \x03(\v2\x17.google.protobuf.StructR\aresultsB\x0e\n" +
-	"\f_next_cursor\"\x80\x01\n" +
+	"totalCount\x121\n" +
+	"\aresults\x18\x03 \x03(\v2\x17.google.protobuf.StructR\aresultsJ\x04\b\x02\x10\x03\"\x80\x01\n" +
 	"\n" +
 	"GetRequest\x12(\n" +
 	"\vobject_name\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\n" +
@@ -371,7 +350,6 @@ func file_registry_v1_registry_proto_init() {
 	if File_registry_v1_registry_proto != nil {
 		return
 	}
-	file_registry_v1_registry_proto_msgTypes[1].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

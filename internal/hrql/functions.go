@@ -7,14 +7,14 @@ import (
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
-// SourceCall compiles a function at source position into a Plan.
-type SourceCall func(c *Compiler, fn *parser.FuncCall) (*Plan, error)
+// sourceCall compiles a function at source position into a Plan.
+type sourceCall func(c *Compiler, fn *parser.FuncCall) (*Plan, error)
 
-// PipeCall applies a function in pipe position to an existing Plan.
-type PipeCall func(c *Compiler, plan *Plan, fn *parser.FuncCall) (*Plan, error)
+// pipeCall applies a function in pipe position to an existing Plan.
+type pipeCall func(c *Compiler, plan *Plan, fn *parser.FuncCall) (*Plan, error)
 
-// SourceCalls maps function names to their source-position compilers.
-var SourceCalls = map[string]SourceCall{
+// sourceCalls maps function names to their source-position compilers.
+var sourceCalls = map[string]sourceCall{
 	"chain":      (*Compiler).compileChain,
 	"reports":    (*Compiler).compileReports,
 	"peers":      (*Compiler).compilePeers,
@@ -22,8 +22,8 @@ var SourceCalls = map[string]SourceCall{
 	"reports_to": (*Compiler).compileReportsTo,
 }
 
-// PipeCalls maps function names to their pipe-position handlers.
-var PipeCalls = map[string]PipeCall{
+// pipeCalls maps function names to their pipe-position handlers.
+var pipeCalls = map[string]pipeCall{
 	"contains":    pipeStringOpError,
 	"starts_with": pipeStringOpError,
 	"ends_with":   pipeStringOpError,
@@ -37,7 +37,7 @@ var PipeCalls = map[string]PipeCall{
 
 // compileFuncCall handles functions at source position via SourceCalls map.
 func (c *Compiler) compileFuncCall(fn *parser.FuncCall) (*Plan, error) {
-	call, ok := SourceCalls[fn.Name]
+	call, ok := sourceCalls[fn.Name]
 	if !ok {
 		return nil, fmt.Errorf("unknown function %q", fn.Name)
 	}
@@ -45,7 +45,7 @@ func (c *Compiler) compileFuncCall(fn *parser.FuncCall) (*Plan, error) {
 }
 
 func (c *Compiler) applyFuncInPipe(plan *Plan, fn *parser.FuncCall) (*Plan, error) {
-	call, ok := PipeCalls[fn.Name]
+	call, ok := pipeCalls[fn.Name]
 	if !ok {
 		return nil, fmt.Errorf("function %q is not supported in pipe position", fn.Name)
 	}
@@ -185,9 +185,9 @@ func (c *Compiler) compileReportsTo(fn *parser.FuncCall) (*Plan, error) {
 	}
 
 	return &Plan{
-		Kind:          PlanBoolean,
+		Kind:          PlanScalar,
 		ObjectAPIName: "employees",
-		BoolCondition: ReportsToCheck{Emp: empRef, Target: tgtRef},
+		ScalarExpr:    ScalarBool{Cond: ReportsToCheck{Emp: empRef, Target: tgtRef}},
 	}, nil
 }
 

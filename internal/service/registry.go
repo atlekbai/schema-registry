@@ -7,27 +7,27 @@ import (
 	"net/http"
 
 	"connectrpc.com/connect"
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	registryv1 "github.com/atlekbai/schema_registry/gen/registry/v1"
 	registryv1connect "github.com/atlekbai/schema_registry/gen/registry/v1/registryv1connect"
+	"github.com/atlekbai/schema_registry/internal/hrest"
 	"github.com/atlekbai/schema_registry/internal/hrql"
-	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
 	"github.com/atlekbai/schema_registry/internal/schema"
 )
 
-type RegistryService struct {
-	pool   *pgxpool.Pool
-	cache  *schema.Cache
-	engine *hrql.Engine
-	q      hrql.Queryable
+// ListQuerier executes list queries against the database.
+type ListQuerier interface {
+	ListRecords(ctx context.Context, objectName string, params *hrest.Params) (hrest.ListResult, error)
 }
 
-func NewRegistryService(pool *pgxpool.Pool, cache *schema.Cache, engine *hrql.Engine, q hrql.Queryable) *RegistryService {
-	return &RegistryService{pool: pool, cache: cache, engine: engine, q: q}
+type RegistryService struct {
+	cache *schema.Cache
+	lq    ListQuerier
+}
+
+func NewRegistryService(cache *schema.Cache, lq ListQuerier) *RegistryService {
+	return &RegistryService{cache: cache, lq: lq}
 }
 
 func (s *RegistryService) RegisterHandler(interceptors ...connect.Interceptor) (string, http.Handler) {
@@ -36,33 +36,29 @@ func (s *RegistryService) RegisterHandler(interceptors ...connect.Interceptor) (
 
 func (s *RegistryService) List(ctx context.Context, req *connect.Request[registryv1.ListRequest]) (*connect.Response[registryv1.ListResponse], error) {
 	msg := req.Msg
-	if obj := s.cache.Get(msg.ObjectName); obj == nil {
+	obj := s.cache.Get(msg.ObjectName)
+	if obj == nil {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no object registered with api_name %q", msg.ObjectName))
 	}
 
-	val, err := s.engine.List(ctx, s.q, msg.ObjectName, hrql.QueryOpts{
-		Select:  msg.Select,
+	params, err := hrest.ParseParams(obj, hrest.QueryOpts{
+		Sel:     msg.Select,
 		Expand:  msg.Expand,
 		Order:   msg.Order,
 		Limit:   msg.Limit,
-		Cursor:  msg.Cursor,
 		Filters: msg.Filters,
 	})
 	if err != nil {
-		code := connect.CodeInternal
-		if hrql.IsInputError(err) {
-			code = connect.CodeInvalidArgument
-		}
-		return nil, connect.NewError(code, err)
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	list, ok := val.(hrql.List)
-	if !ok {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unexpected result type %T", val))
+	list, err := s.lq.ListRecords(ctx, msg.ObjectName, params)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+
 	resp := &registryv1.ListResponse{
 		TotalCount: list.TotalCount,
-		NextCursor: list.NextCursor,
 	}
 
 	resp.Results, err = rowsToStructs(list.Rows)
@@ -80,37 +76,28 @@ func (s *RegistryService) Get(ctx context.Context, req *connect.Request[registry
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no object registered with api_name %q", msg.ObjectName))
 	}
 
-	id, err := uuid.Parse(msg.Id)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("invalid ID format: %w", err))
-	}
-
-	params, err := hrqlpg.ParseParams(obj, hrqlpg.ParamsInput{
-		Select: msg.Select,
+	params, err := hrest.ParseParams(obj, hrest.QueryOpts{
+		Sel:    msg.Select,
 		Expand: msg.Expand,
 	})
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	params.ExpandPlans = hrqlpg.ResolveExpands(params.Expand, obj, s.cache)
-	builder := hrqlpg.NewBuilder(obj)
+	params.SkipCount = true
+	params.Limit = 1
+	params.Conditions = append(params.Conditions, hrql.IdentityFilter{ID: msg.Id})
 
-	sqlStr, args, err := builder.BuildGetByID(id, params)
+	list, err := s.lq.ListRecords(ctx, msg.ObjectName, params)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("build query: %w", err))
+		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
-	var data json.RawMessage
-	err = s.pool.QueryRow(ctx, sqlStr, args...).Scan(&data)
-	if err == pgx.ErrNoRows {
+	if len(list.Rows) == 0 {
 		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("record not found"))
 	}
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("query failed: %w", err))
-	}
 
-	records, err := rowsToStructs([]json.RawMessage{data})
+	records, err := rowsToStructs(list.Rows[:1])
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}

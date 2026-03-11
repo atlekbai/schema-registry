@@ -14,7 +14,8 @@ import (
 	"github.com/atlekbai/schema_registry/internal/config"
 	"github.com/atlekbai/schema_registry/internal/db"
 	"github.com/atlekbai/schema_registry/internal/hrql"
-	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/pg"
+	hrqlpg "github.com/atlekbai/schema_registry/internal/hrql/dialect/pg"
+	hrestpg "github.com/atlekbai/schema_registry/internal/hrest/pg"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/atlekbai/schema_registry/internal/server"
 	"github.com/atlekbai/schema_registry/internal/service"
@@ -52,9 +53,10 @@ func main() {
 
 	engine := hrql.NewEngine(cache)
 	pgQ := hrqlpg.NewPGQueryable(pool, cache)
+	restQ := hrestpg.NewPGListQuerier(pool, cache)
 
 	services := []server.ConnectService{
-		service.NewRegistryService(pool, cache, engine, pgQ),
+		service.NewRegistryService(cache, restQ),
 		service.NewMetadataService(pool, cache),
 		service.NewOrgService(engine, pgQ),
 	}

@@ -19,15 +19,14 @@ message ListRequest {
     gte: 0
     lte: 200
   }];
-  // Opaque cursor token from a previous response.
-  string cursor = 6;
+  reserved 6;
   // Filters keyed by field API name, values in "op.value" format (e.g. "eq.active").
   map<string, string> filters = 7;
 }
 
 message ListResponse {
   int64 total_count = 1;
-  optional string next_cursor = 2;
+  reserved 2;
   repeated google.protobuf.Struct results = 3;
 }
 

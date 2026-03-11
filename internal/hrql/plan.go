@@ -6,9 +6,8 @@ import "strings"
 type PlanKind int
 
 const (
-	PlanList    PlanKind = iota // produces a list of records
-	PlanScalar                  // produces a single value (aggregation)
-	PlanBoolean                 // produces a boolean (reports_to)
+	PlanList   PlanKind = iota // produces a list of records
+	PlanScalar                 // produces a single value (aggregation or boolean)
 )
 
 // Plan is the storage-agnostic output of compiling an HRQL expression.
@@ -27,10 +26,7 @@ type Plan struct {
 	// PlanScalar fields
 	AggFunc    string     // "count", "sum", "avg", "min", "max"
 	AggField   string     // field API name, "" for count(*)
-	ScalarExpr ScalarExpr // if set, arithmetic expression tree (overrides AggFunc/AggField)
-
-	// PlanBoolean fields
-	BoolCondition Condition // deferred to SQL execution
+	ScalarExpr ScalarExpr // if set, expression tree (overrides AggFunc/AggField)
 }
 
 // OrderBy specifies sort order for a list result.
@@ -212,6 +208,11 @@ func (ScalarArith) scalarExpr() {}
 type ScalarSubquery struct{ Plan *Plan }
 
 func (ScalarSubquery) scalarExpr() {}
+
+// ScalarBool is a boolean expression that produces "true"/"false" as a scalar.
+type ScalarBool struct{ Cond Condition }
+
+func (ScalarBool) scalarExpr() {}
 
 // --- Helpers ---
 

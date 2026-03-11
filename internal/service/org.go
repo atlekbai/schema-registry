@@ -32,13 +32,6 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 		Query:      msg.Query,
 		SelfID:     msg.SelfId,
 		SelfObject: msg.SelfObject,
-		Opts: hrql.QueryOpts{
-			Select: msg.Select,
-			Expand: msg.Expand,
-			Order:  msg.Order,
-			Limit:  msg.Limit,
-			Cursor: msg.Cursor,
-		},
 	})
 	if err != nil {
 		code := connect.CodeInternal
@@ -53,7 +46,6 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	case hrql.List:
 		resp.ResultObject = v.ObjectAPIName
 		resp.TotalCount = v.TotalCount
-		resp.NextCursor = v.NextCursor
 		resp.Results, err = rowsToStructs(v.Rows)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeInternal, err)
@@ -61,9 +53,10 @@ func (s *OrgService) Query(ctx context.Context, req *connect.Request[registryv1.
 	case hrql.Scalar:
 		resp.ResultObject = v.ObjectAPIName
 		resp.Scalar = v.Value
-	case hrql.Boolean:
-		resp.ResultObject = v.ObjectAPIName
-		resp.ReportsTo = v.Value
+		if v.Value != nil && (*v.Value == "true" || *v.Value == "false") {
+			b := *v.Value == "true"
+			resp.ReportsTo = &b
+		}
 	default:
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("unexpected result type %T", v))
 	}
