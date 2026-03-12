@@ -61,11 +61,8 @@ func (q *PGQuerier) execList(ctx context.Context, plan *hrql.Plan, obj *schema.O
 		return nil, fmt.Errorf("translate conditions: %w", err)
 	}
 
-	limit := plan.Limit
-
-	jsonExpr := buildAllFieldsJSON(obj)
 	from, baseWhere := TableSource(obj, Alias())
-	qb := sq.Select(jsonExpr + " AS _row").From(from).PlaceholderFormat(sq.Dollar)
+	qb := PG.Select().Column(sq.Alias(jsonbBuildObject(obj), "_row")).From(from)
 	if baseWhere != nil {
 		qb = qb.Where(baseWhere)
 	}
@@ -73,21 +70,9 @@ func (q *PGQuerier) execList(ctx context.Context, plan *hrql.Plan, obj *schema.O
 		qb = qb.Where(cond)
 	}
 
-	// order
-	if plan.OrderBy != nil {
-		dir := "ASC"
-		if plan.OrderBy.Desc {
-			dir = "DESC"
-		}
-		if fd := obj.FieldsByAPIName[plan.OrderBy.Field]; fd != nil {
-			qb = qb.OrderBy(fmt.Sprintf(`%s %s`, FilterExpr(Alias(), fd), dir))
-		}
-		qb = qb.OrderBy(fmt.Sprintf(`%s."id" %s`, QI(Alias()), dir))
-	} else {
-		qb = qb.OrderBy(fmt.Sprintf(`%s."id" ASC`, QI(Alias())))
-	}
+	qb = AddOrderBy(qb, obj, plan.OrderBy)
 
-	qb = qb.Limit(uint64(limit))
+	qb = qb.Limit(uint64(plan.Limit))
 
 	sqlStr, args, err := qb.ToSql()
 	if err != nil {
@@ -112,10 +97,13 @@ func (q *PGQuerier) execList(ctx context.Context, plan *hrql.Plan, obj *schema.O
 	}, nil
 }
 
-// buildAllFieldsJSON builds a json_build_object(...) for all fields (no select/expand filtering).
-func buildAllFieldsJSON(obj *schema.ObjectDef) string {
-	alias := Alias()
-	var pairs []string
+// jsonbBuildObject builds a jsonb_build_object(...) Sqlizer for all fields (no select/expand filtering).
+func jsonbBuildObject(obj *schema.ObjectDef) sq.Sqlizer {
+	var (
+		alias = Alias()
+		pairs []string
+	)
+
 	pairs = append(pairs,
 		fmt.Sprintf(`'id', %s."id"`, QI(alias)),
 		fmt.Sprintf(`'created_at', %s."created_at"`, QI(alias)),
@@ -130,7 +118,7 @@ func buildAllFieldsJSON(obj *schema.ObjectDef) string {
 		pairs = append(pairs, fmt.Sprintf(`%s, %s`, QuoteLit(JSONKey(f)), SelectExpr(alias, f)))
 	}
 
-	return fmt.Sprintf("json_build_object(%s)", strings.Join(pairs, ", "))
+	return sq.Expr("jsonb_build_object(" + strings.Join(pairs, ", ") + ")")
 }
 
 func (q *PGQuerier) execScalar(ctx context.Context, plan *hrql.Plan, obj *schema.ObjectDef) (hrql.Value, error) {
@@ -139,8 +127,7 @@ func (q *PGQuerier) execScalar(ctx context.Context, plan *hrql.Plan, obj *schema
 		return nil, fmt.Errorf("translate plan: %w", err)
 	}
 
-	sqlStr, args, err := sq.Select().Column(sqlResult.Scalar).
-		PlaceholderFormat(sq.Dollar).ToSql()
+	sqlStr, args, err := PG.Select().Column(sqlResult.Scalar).ToSql()
 	if err != nil {
 		return nil, fmt.Errorf("build scalar query: %w", err)
 	}
@@ -152,7 +139,6 @@ func (q *PGQuerier) execScalar(ctx context.Context, plan *hrql.Plan, obj *schema
 
 	return hrql.Scalar{ObjectAPIName: plan.ObjectAPIName, Value: rawResult}, nil
 }
-
 
 // Ensure PGQueryable implements hrql.Queryable at compile time.
 var _ hrql.Queryable = (*PGQueryable)(nil)

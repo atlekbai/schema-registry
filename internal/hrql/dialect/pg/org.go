@@ -10,13 +10,13 @@ import (
 )
 
 // chainUp returns a condition matching the ancestor at exactly `steps` levels above target.
-func chainUp(ref hrql.EmployeeRef, steps int, obj *schema.ObjectDef) sq.Sqlizer {
-	return atAncestor(sq.Expr(mpCol()), pathSubquery(ref, obj), steps)
+func chainUp(ref hrql.EmployeeRef, steps int, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
+	return atAncestor(sq.Expr(mpCol()), pathSubquery(ref, obj, cache), steps)
 }
 
 // chainDown returns a condition matching descendants at exactly `depth` levels below target.
-func chainDown(ref hrql.EmployeeRef, depth int, obj *schema.ObjectDef) sq.Sqlizer {
-	path := pathSubquery(ref, obj)
+func chainDown(ref hrql.EmployeeRef, depth int, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
+	path := pathSubquery(ref, obj, cache)
 	mp := sq.Expr(mpCol())
 	return sq.And{
 		descendantOf(mp, path),
@@ -25,8 +25,8 @@ func chainDown(ref hrql.EmployeeRef, depth int, obj *schema.ObjectDef) sq.Sqlize
 }
 
 // subtree returns a condition matching all descendants (any depth), excluding the target itself.
-func subtree(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
-	path := pathSubquery(ref, obj)
+func subtree(ref hrql.EmployeeRef, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
+	path := pathSubquery(ref, obj, cache)
 	mp := sq.Expr(mpCol())
 	return sq.And{
 		descendantOf(mp, path),
@@ -35,33 +35,33 @@ func subtree(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
 }
 
 // sameField returns: column = (SELECT field FROM emp WHERE id = ref.ID) AND id != ref.ID.
-func sameField(fieldAPIName string, ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
+func sameField(fieldAPIName string, ref hrql.EmployeeRef, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
 	col := fmt.Sprintf(`%s.%s`, QI(Alias()), QI(resolveColumn(obj, fieldAPIName)))
-	field := fieldSubquery(ref, fieldAPIName, obj)
+	field := fieldSubquery(ref, fieldAPIName, obj, cache)
 	return sq.And{
 		sq.Expr(col+` = (?)`, field),
 		sq.Expr(`(?) IS NOT NULL`, field),
-		sqlNeq(sq.Expr(idCol()), refToSQL(ref, obj)),
+		sqlNeq(sq.Expr(idCol()), refToSQL(ref, obj, cache)),
 	}
 }
 
 // chainAll returns a condition matching ALL ancestors of the target.
-func chainAll(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
+func chainAll(ref hrql.EmployeeRef, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
 	return sq.And{
-		ancestorOf(sq.Expr(mpCol()), pathSubquery(ref, obj)),
-		sqlNeq(sq.Expr(idCol()), refToSQL(ref, obj)),
+		ancestorOf(sq.Expr(mpCol()), pathSubquery(ref, obj, cache)),
+		sqlNeq(sq.Expr(idCol()), refToSQL(ref, obj, cache)),
 	}
 }
 
 // reportsToWhere generates a WHERE condition for reports_to(., target) inside where.
-func reportsToWhere(ref hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
-	return subtree(ref, obj)
+func reportsToWhere(ref hrql.EmployeeRef, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
+	return subtree(ref, obj, cache)
 }
 
 // reportsToCheck builds a boolean expression for reports_to(emp, target).
-func reportsToCheck(emp, target hrql.EmployeeRef, obj *schema.ObjectDef) sq.Sqlizer {
-	empPath := pathSubquery(emp, obj)
-	tgtPath := pathSubquery(target, obj)
+func reportsToCheck(emp, target hrql.EmployeeRef, obj *schema.ObjectDef, cache *schema.Cache) sq.Sqlizer {
+	empPath := pathSubquery(emp, obj, cache)
+	tgtPath := pathSubquery(target, obj, cache)
 	return sq.And{
 		descendantOf(empPath, tgtPath),
 		sqlNeq(empPath, tgtPath),

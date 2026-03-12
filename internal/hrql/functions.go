@@ -31,6 +31,8 @@ var pipeCalls = map[string]pipeCall{
 	"upper":       pipePassthrough,
 	"lower":       pipePassthrough,
 	"length":      pipeLength,
+	"chain":       pipeChain,
+	"reports":     pipeReports,
 }
 
 // --- Dispatchers ---
@@ -205,4 +207,70 @@ func pipeLength(_ *Compiler, plan *Plan, _ *parser.FuncCall) (*Plan, error) {
 	plan.Kind = PlanScalar
 	plan.AggFunc = "count"
 	return plan, nil
+}
+
+func pipeChain(c *Compiler, plan *Plan, fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("chain"); err != nil {
+		return nil, err
+	}
+	if len(fn.Args) < 1 {
+		return nil, fmt.Errorf("chain() in pipe position requires at least 1 argument")
+	}
+	if _, ok := fn.Args[0].(*parser.DotExpr); !ok {
+		return nil, fmt.Errorf("chain() in pipe position expects '.' as first argument")
+	}
+
+	subPlan := *plan
+	ref := EmployeeRef{SubPlan: &subPlan}
+
+	depth := 0
+	if len(fn.Args) == 2 {
+		var err error
+		depth, err = c.resolveIntArg(fn.Args[1])
+		if err != nil {
+			return nil, fmt.Errorf("chain arg 2: %w", err)
+		}
+	}
+
+	var cond Condition
+	if depth == 0 {
+		cond = OrgChainAll{Emp: ref}
+	} else {
+		cond = OrgChainUp{Emp: ref, Steps: depth}
+	}
+
+	return &Plan{Kind: PlanList, ObjectAPIName: "employees", Conditions: []Condition{cond}}, nil
+}
+
+func pipeReports(c *Compiler, plan *Plan, fn *parser.FuncCall) (*Plan, error) {
+	if _, err := c.requireEmployeesObj("reports"); err != nil {
+		return nil, err
+	}
+	if len(fn.Args) < 1 {
+		return nil, fmt.Errorf("reports() in pipe position requires at least 1 argument")
+	}
+	if _, ok := fn.Args[0].(*parser.DotExpr); !ok {
+		return nil, fmt.Errorf("reports() in pipe position expects '.' as first argument")
+	}
+
+	subPlan := *plan
+	ref := EmployeeRef{SubPlan: &subPlan}
+
+	depth := 0
+	if len(fn.Args) == 2 {
+		var err error
+		depth, err = c.resolveIntArg(fn.Args[1])
+		if err != nil {
+			return nil, fmt.Errorf("reports arg 2: %w", err)
+		}
+	}
+
+	var cond Condition
+	if depth == 0 {
+		cond = OrgSubtree{Emp: ref}
+	} else {
+		cond = OrgChainDown{Emp: ref, Depth: depth}
+	}
+
+	return &Plan{Kind: PlanList, ObjectAPIName: "employees", Conditions: []Condition{cond}}, nil
 }

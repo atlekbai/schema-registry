@@ -12,7 +12,7 @@ var ref = hrql.EmployeeRef{ID: "abc-123"}
 const pathSub = `SELECT "manager_path" FROM "core"."employees" WHERE "id" = (?)`
 
 func TestChainUp(t *testing.T) {
-	sql, args, err := chainUp(ref, 2, testObj).ToSql()
+	sql, args, err := chainUp(ref, 2, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`("_e"."manager_path") = subpath(`+pathSub+`, 0, GREATEST(nlevel(`+pathSub+`) - ?, 0))`,
@@ -21,7 +21,7 @@ func TestChainUp(t *testing.T) {
 }
 
 func TestChainDown(t *testing.T) {
-	sql, args, err := chainDown(ref, 1, testObj).ToSql()
+	sql, args, err := chainDown(ref, 1, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`(("_e"."manager_path") <@ (`+pathSub+`) AND nlevel("_e"."manager_path") = nlevel(`+pathSub+`) + ?)`,
@@ -30,7 +30,7 @@ func TestChainDown(t *testing.T) {
 }
 
 func TestSubtree(t *testing.T) {
-	sql, args, err := subtree(ref, testObj).ToSql()
+	sql, args, err := subtree(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`(("_e"."manager_path") <@ (`+pathSub+`) AND ("_e"."manager_path") != (`+pathSub+`))`,
@@ -39,7 +39,7 @@ func TestSubtree(t *testing.T) {
 }
 
 func TestChainAll(t *testing.T) {
-	sql, args, err := chainAll(ref, testObj).ToSql()
+	sql, args, err := chainAll(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`(("_e"."manager_path") @> (`+pathSub+`) AND ("_e"."id") != (?))`,
@@ -49,7 +49,7 @@ func TestChainAll(t *testing.T) {
 
 func TestSameField(t *testing.T) {
 	fieldSub := `SELECT "department_id" FROM "core"."employees" WHERE "id" = (?)`
-	sql, args, err := sameField("department", ref, testObj).ToSql()
+	sql, args, err := sameField("department", ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`("_e"."department_id" = (`+fieldSub+`) AND (`+fieldSub+`) IS NOT NULL AND ("_e"."id") != (?))`,
@@ -60,7 +60,7 @@ func TestSameField(t *testing.T) {
 func TestReportsToCheck(t *testing.T) {
 	emp := hrql.EmployeeRef{ID: "emp-1"}
 	target := hrql.EmployeeRef{ID: "tgt-1"}
-	sql, args, err := reportsToCheck(emp, target, testObj).ToSql()
+	sql, args, err := reportsToCheck(emp, target, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`((`+pathSub+`) <@ (`+pathSub+`) AND (`+pathSub+`) != (`+pathSub+`))`,

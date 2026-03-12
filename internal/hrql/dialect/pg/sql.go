@@ -6,11 +6,15 @@ import (
 	"strings"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/atlekbai/schema_registry/internal/hrql"
 	"github.com/atlekbai/schema_registry/internal/schema"
 	"github.com/jackc/pgx/v5"
 )
 
 const qAlias = "_e"
+
+// PG is a statement builder pre-configured with PostgreSQL $N placeholders.
+var PG = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)
 
 // QI quotes a SQL identifier, escaping embedded double quotes.
 func QI(name string) string { return `"` + strings.ReplaceAll(name, `"`, `""`) + `"` }
@@ -107,6 +111,21 @@ func atDepth(left, right sq.Sqlizer, depth int) sq.Sqlizer {
 // atAncestor returns `left = subpath(right, 0, GREATEST(nlevel(right) - steps, 0))` — ancestor at exact level.
 func atAncestor(left, right sq.Sqlizer, steps int) sq.Sqlizer {
 	return sq.Expr(`(?) = subpath(?, 0, GREATEST(nlevel(?) - ?, 0))`, left, right, right, steps)
+}
+
+// AddOrderBy appends ORDER BY clauses: optional field order + id tiebreaker.
+func AddOrderBy(qb sq.SelectBuilder, obj *schema.ObjectDef, order *hrql.OrderBy) sq.SelectBuilder {
+	field, desc := order.FieldDir()
+	dir := "ASC"
+	if desc {
+		dir = "DESC"
+	}
+	if field != "" {
+		if fd := obj.FieldsByAPIName[field]; fd != nil {
+			qb = qb.OrderByClause(FilterExpr(Alias(), fd) + " " + dir)
+		}
+	}
+	return qb.OrderByClause(QI(Alias()) + `."id" ` + dir)
 }
 
 // IsSystemField returns true for system fields (id, created_at, updated_at)

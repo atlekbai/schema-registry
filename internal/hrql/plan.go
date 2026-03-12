@@ -35,11 +35,20 @@ type OrderBy struct {
 	Desc  bool
 }
 
+// FieldDir returns the field name and desc flag, safe to call on nil.
+func (o *OrderBy) FieldDir() (string, bool) {
+	if o == nil {
+		return "", false
+	}
+	return o.Field, o.Desc
+}
+
 // EmployeeRef is an unresolved reference to an employee or a derived value.
 // The pg backend resolves it to SQL at translation time.
 type EmployeeRef struct {
-	ID    string   // base UUID (selfID or literal)
-	Chain []string // optional field chain: ["manager"] for self.manager
+	ID      string   // base UUID (selfID or literal)
+	Chain   []string // optional field chain: ["manager"] for self.manager
+	SubPlan *Plan    // if set, ID comes from a sub-plan (e.g. chain(., 1) in pipe position)
 }
 
 // --- Condition types ---

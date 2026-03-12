@@ -14,7 +14,7 @@ import (
 )
 
 // exactCountThreshold is the planner estimate below which we run an exact count.
-const exactCountThreshold = 50_000
+const exactCountThreshold = 10_000
 
 // parsePlanRows extracts the estimated row count from EXPLAIN JSON output.
 func parsePlanRows(planJSON string) int64 {
@@ -32,32 +32,26 @@ func parsePlanRows(planJSON string) int64 {
 // ResolveCount uses the EXPLAIN trick for cheap estimation on large tables,
 // falling back to exact count only when the planner estimate is small.
 func ResolveCount(ctx context.Context, pool *pgxpool.Pool, builder Builder, params *QueryParams) (int64, error) {
-	estSQL, estArgs, err := builder.BuildEstimate(params)
+	countSQL, countArgs, err := builder.BuildCount(params).ToSql()
 	if err != nil {
 		return 0, err
 	}
 
 	var planJSON string
-	err = pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+estSQL, estArgs...).Scan(&planJSON)
-	if err != nil {
+	if err := pool.QueryRow(ctx, "EXPLAIN (FORMAT JSON) "+countSQL, countArgs...).Scan(&planJSON); err != nil {
 		return 0, fmt.Errorf("explain estimate: %w", err)
 	}
 
 	estimated := parsePlanRows(planJSON)
-
-	if estimated <= exactCountThreshold {
-		countSQL, countArgs, err := builder.BuildCount(params)
-		if err != nil {
-			return estimated, nil
-		}
-		var count int64
-		if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&count); err != nil {
-			return estimated, nil
-		}
-		return count, nil
+	if estimated > exactCountThreshold {
+		return estimated, nil
 	}
 
-	return estimated, nil
+	var count int64
+	if err := pool.QueryRow(ctx, countSQL, countArgs...).Scan(&count); err != nil {
+		return estimated, nil
+	}
+	return count, nil
 }
 
 // PGListQuerier executes REST-style list queries against PostgreSQL.
@@ -88,7 +82,7 @@ func (q *PGListQuerier) ListRecords(ctx context.Context, objectName string, para
 		qp.SQLConditions = sqlConds
 	}
 
-	qp.ExpandPlans = ResolveExpands(qp.Expand, obj, q.cache)
+	qp.ExpandPlans = ResolveExpands(qp.Expand, obj, q.cache, maxExpandDepth)
 
 	builder := NewBuilder(obj)
 	g, gctx := errgroup.WithContext(ctx)
@@ -104,7 +98,7 @@ func (q *PGListQuerier) ListRecords(ctx context.Context, objectName string, para
 
 	var rows []json.RawMessage
 	g.Go(func() error {
-		sqlStr, args, err := builder.BuildList(qp)
+		sqlStr, args, err := builder.BuildList(qp).ToSql()
 		if err != nil {
 			return err
 		}

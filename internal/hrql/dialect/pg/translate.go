@@ -74,7 +74,7 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 		return fieldCmpToSQL(c, obj, cache)
 
 	case hrql.FieldCmpRef:
-		return fieldCmprefToSQL(c, obj)
+		return fieldCmprefToSQL(c, obj, cache)
 
 	case hrql.StringMatch:
 		return stringMatchToSQL(c, obj)
@@ -102,25 +102,25 @@ func conditionToSQL(c hrql.Condition, obj *schema.ObjectDef, cache *schema.Cache
 		return sq.Or{left, right}, nil
 
 	case hrql.OrgChainUp:
-		return chainUp(c.Emp, c.Steps, obj), nil
+		return chainUp(c.Emp, c.Steps, obj, cache), nil
 
 	case hrql.OrgChainDown:
-		return chainDown(c.Emp, c.Depth, obj), nil
+		return chainDown(c.Emp, c.Depth, obj, cache), nil
 
 	case hrql.OrgChainAll:
-		return chainAll(c.Emp, obj), nil
+		return chainAll(c.Emp, obj, cache), nil
 
 	case hrql.OrgSubtree:
-		return subtree(c.Emp, obj), nil
+		return subtree(c.Emp, obj, cache), nil
 
 	case hrql.SameFieldCond:
-		return sameField(c.Field, c.Emp, obj), nil
+		return sameField(c.Field, c.Emp, obj, cache), nil
 
 	case hrql.ReportsTo:
-		return reportsToWhere(c.Target, obj), nil
+		return reportsToWhere(c.Target, obj, cache), nil
 
 	case hrql.ReportsToCheck:
-		return reportsToCheck(c.Emp, c.Target, obj), nil
+		return reportsToCheck(c.Emp, c.Target, obj, cache), nil
 
 	case hrql.SubqueryAgg:
 		return subqueryAggToSQL(c, obj)
@@ -172,7 +172,7 @@ func fieldCmpToSQL(c hrql.FieldCmp, obj *schema.ObjectDef, cache *schema.Cache) 
 }
 
 // fieldCmpRefToSQL translates a FieldCmpRef (field vs EmployeeRef subquery) to SQL.
-func fieldCmprefToSQL(c hrql.FieldCmpRef, obj *schema.ObjectDef) (sq.Sqlizer, error) {
+func fieldCmprefToSQL(c hrql.FieldCmpRef, obj *schema.ObjectDef, cache *schema.Cache) (sq.Sqlizer, error) {
 	if len(c.Field) == 0 {
 		return nil, fmt.Errorf("empty field in FieldCmpRef")
 	}
@@ -188,7 +188,7 @@ func fieldCmprefToSQL(c hrql.FieldCmpRef, obj *schema.ObjectDef) (sq.Sqlizer, er
 		return comparisonExpr(col, c.Op, c.Ref.ID), nil
 	}
 
-	ref := refToSQL(c.Ref, obj)
+	ref := refToSQL(c.Ref, obj, cache)
 	return sq.Expr(fmt.Sprintf(`%s %s (?)`, col, cmpOp(c.Op)), ref), nil
 }
 

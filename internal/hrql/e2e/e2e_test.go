@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	sq "github.com/Masterminds/squirrel"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -101,8 +100,7 @@ func pipeline(t *testing.T, input, selfID string, selfObject ...string) (*hrql.P
 
 	// For scalar plans, serialize the Scalar sqlizer into sql+args.
 	if plan.Kind == hrql.PlanScalar && result.Scalar != nil {
-		sql, args, err := sq.Select().Column(result.Scalar).
-			PlaceholderFormat(sq.Dollar).ToSql()
+		sql, args, err := pg.PG.Select().Column(result.Scalar).ToSql()
 		require.NoError(t, err, "scalar to sql %q", input)
 		return plan, result, sql, args
 	}
@@ -625,6 +623,29 @@ func TestReversedComparison(t *testing.T) {
 	sql, args := condToSQL(t, result.Conditions[0])
 	assert.Equal(t, `"_e"."start_date" > ?`, sql)
 	assert.Equal(t, []any{"2024-01-01"}, args)
+}
+
+// --- Test: chained pipeline with pick + re-source ---
+
+func TestChainWhereLastChain(t *testing.T) {
+	plan, result, _, _ := pipeline(t, `chain(self) | where(.department == self.department) | last | chain(., 1)`, selfUUID)
+
+	require.Equal(t, hrql.PlanList, plan.Kind)
+	require.Equal(t, "employees", plan.ObjectAPIName)
+
+	// chain(., 1) produces a single OrgChainUp condition with SubPlan ref
+	require.Len(t, result.Conditions, 1)
+
+	sql, args := condToSQL(t, result.Conditions[0])
+
+	// The inner subquery selects the ID from: chain(self) | where(.department == self.department) | last
+	innerSub := `SELECT "_e"."id" FROM "core"."employees" "_e" WHERE (("_e"."manager_path") @> (SELECT "manager_path" FROM "core"."employees" WHERE "id" = (?)) AND ("_e"."id") != (?)) AND "_e"."department_id" = (SELECT "department_id" FROM "core"."employees" WHERE "id" = (?)) ORDER BY "_e"."id" DESC LIMIT 1`
+	pathSub := `SELECT "manager_path" FROM "core"."employees" WHERE "id" = (` + innerSub + `)`
+
+	assert.Equal(t,
+		`("_e"."manager_path") = subpath(`+pathSub+`, 0, GREATEST(nlevel(`+pathSub+`) - ?, 0))`,
+		sql)
+	assert.Equal(t, []any{selfUUID, selfUUID, selfUUID, selfUUID, selfUUID, selfUUID, 1}, args)
 }
 
 // --- Test: generic object support ---

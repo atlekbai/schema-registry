@@ -9,7 +9,7 @@ import (
 
 func TestRefToSQL_NoChain(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123"}
-	sql, args, err := refToSQL(ref, testObj).ToSql()
+	sql, args, err := refToSQL(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t, "?", sql)
 	require.Equal(t, []any{"abc-123"}, args)
@@ -17,7 +17,7 @@ func TestRefToSQL_NoChain(t *testing.T) {
 
 func TestRefToSQL_SingleChain(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123", Chain: []string{"manager"}}
-	sql, args, err := refToSQL(ref, testObj).ToSql()
+	sql, args, err := refToSQL(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t, `SELECT "manager_id" FROM "core"."employees" WHERE "id" = (?)`, sql)
 	require.Equal(t, []any{"abc-123"}, args)
@@ -25,7 +25,7 @@ func TestRefToSQL_SingleChain(t *testing.T) {
 
 func TestRefToSQL_DoubleChain(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123", Chain: []string{"manager", "manager"}}
-	sql, args, err := refToSQL(ref, testObj).ToSql()
+	sql, args, err := refToSQL(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`SELECT "manager_id" FROM "core"."employees" WHERE "id" = (SELECT "manager_id" FROM "core"."employees" WHERE "id" = (?))`,
@@ -35,7 +35,7 @@ func TestRefToSQL_DoubleChain(t *testing.T) {
 
 func TestPathSubquery(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123"}
-	sql, args, err := pathSubquery(ref, testObj).ToSql()
+	sql, args, err := pathSubquery(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t, `SELECT "manager_path" FROM "core"."employees" WHERE "id" = (?)`, sql)
 	require.Equal(t, []any{"abc-123"}, args)
@@ -43,7 +43,7 @@ func TestPathSubquery(t *testing.T) {
 
 func TestPathSubquery_WithChain(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123", Chain: []string{"manager"}}
-	sql, args, err := pathSubquery(ref, testObj).ToSql()
+	sql, args, err := pathSubquery(ref, testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t,
 		`SELECT "manager_path" FROM "core"."employees" WHERE "id" = (SELECT "manager_id" FROM "core"."employees" WHERE "id" = (?))`,
@@ -53,7 +53,7 @@ func TestPathSubquery_WithChain(t *testing.T) {
 
 func TestFieldSubquery(t *testing.T) {
 	ref := hrql.EmployeeRef{ID: "abc-123"}
-	sql, args, err := fieldSubquery(ref, "manager", testObj).ToSql()
+	sql, args, err := fieldSubquery(ref, "manager", testObj, nil).ToSql()
 	require.NoError(t, err)
 	require.Equal(t, `SELECT "manager_id" FROM "core"."employees" WHERE "id" = (?)`, sql)
 	require.Equal(t, []any{"abc-123"}, args)
